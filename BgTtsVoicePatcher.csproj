@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- System.Speech wraps Windows SAPI via COM, so this only runs on Windows. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>BgTtsVoicePatcher</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Speech synthesis (Windows SAPI). -->
+    <PackageReference Include="System.Speech" Version="10.0.9" />
+    <!-- System.Text.Encoding.CodePages is intentionally NOT referenced here: as of
+         .NET 10, the legacy codepages it used to provide (windows-1250/1252, etc.)
+         ship directly in the shared framework, so the package adds nothing for this
+         TFM - the .NET 10 SDK flags it with NU1510 if you add it back. -->
+  </ItemGroup>
+
+</Project>
