@@ -128,11 +128,12 @@ internal static class Program
         var charname = options.GetValueOrDefault("charname", "friend");
         var outMap = options.GetValueOrDefault("out-map", System.IO.Path.Combine(dlgDir, "speaker-strrefs.json"));
         var outNames = options.GetValueOrDefault("out-names", System.IO.Path.Combine(dlgDir, "speaker-names.json"));
+        var outStats = options.GetValueOrDefault("out-stats", System.IO.Path.Combine(dlgDir, "speaker-stats.json"));
         var outUnmatched = options.GetValueOrDefault("out-unmatched", System.IO.Path.Combine(dlgDir, "speaker-unmatched.txt"));
 
         var tlk = TlkFile.Load(tlkPath, encoding);
         var cleaner = new DialogTextCleaner(charNameReplacement: charname);
-        var candidates = GetTtsCandidates(tlk, cleaner, minLength, int.MaxValue);
+        var candidates = GetTtsCandidates(tlk, cleaner, minLength, int.MaxValue, parseAll: true);
         var candidateStrRefs = candidates.Select(c => c.Entry.StrRef).ToHashSet();
 
         Console.WriteLine($"Scanning *.dlg in: {dlgDir}");
@@ -163,6 +164,7 @@ internal static class Program
 
         SpeakerIndex.SaveStrRefMap(relevantMap, outMap);
         SpeakerIndex.SaveOrMergeNamesFile(speakerInfos, outNames);
+        var unresolvedLinesCount = SpeakerIndex.SaveOrMergeStatsFile(relevantMap, speakerInfos, outStats);
 
         var unmatched = candidates
             .Where(c => !relevantMap.ContainsKey(c.Entry.StrRef))
@@ -174,12 +176,16 @@ internal static class Program
         Console.WriteLine($"  TTS candidates with a known speaker: {relevantMap.Count} / {candidateStrRefs.Count}");
         Console.WriteLine($"  Distinct speaker names:    {relevantNames.Count}");
         if (creLookup is not null)
+        {
             Console.WriteLine($"  Gendered via CRE Sex byte: {resolvedViaCre} / {relevantNames.Count}");
+            Console.WriteLine($"  Total dialogue lines with unresolved gender: {unresolvedLinesCount}");
+        }
         Console.WriteLine($"  No speaker found:          {unmatched.Count} -> {outUnmatched}");
         Console.WriteLine("    (often item/spell descriptions, journal text, etc. - not every line is");
         Console.WriteLine("     spoken dialogue, so this list isn't necessarily a gap. Worth a skim though.)");
         Console.WriteLine($"  Wrote: {outMap}");
         Console.WriteLine($"  Wrote/updated: {outNames}");
+        Console.WriteLine($"  Wrote stats: {outStats}");
         Console.WriteLine();
         Console.WriteLine($"Open {outNames} to fill in any remaining nulls or correct a wrong CRE-based guess,");
         Console.WriteLine("then pass both files to 'generate' via --speaker-map and --name-gender-map.");
@@ -303,12 +309,13 @@ internal static class Program
     }
 
     private static List<(TlkEntry Entry, string CleanedText)> GetTtsCandidates(
-        TlkFile tlk, DialogTextCleaner cleaner, int minLength, int limit, ISet<int>? requireKnownSpeaker = null)
+        TlkFile tlk, DialogTextCleaner cleaner, int minLength, int limit, ISet<int>? requireKnownSpeaker = null, bool parseAll = false)
     {
         var candidates = new List<(TlkEntry Entry, string CleanedText)>();
         foreach (var entry in tlk.Entries)
         {
-            if (!entry.HasText || entry.HasSound) continue;
+            if (!entry.HasText) continue;
+            if (!parseAll && entry.HasSound) continue;
             if (requireKnownSpeaker is not null && !requireKnownSpeaker.Contains(entry.StrRef)) continue;
 
             var cleaned = cleaner.Clean(entry.Text);
@@ -434,7 +441,7 @@ internal static class Program
 
         var candidates = strRefFilter is not null
             ? GetCandidatesForStrRefs(tlk, cleaner, minLength, strRefFilter)
-            : GetTtsCandidates(tlk, cleaner, minLength, limit, requireKnownSpeaker);
+            : GetTtsCandidates(tlk, cleaner, minLength, limit, requireKnownSpeaker: requireKnownSpeaker);
 
         Console.WriteLine(strRefFilter is not null
             ? $"{candidates.Count} line(s) selected from --strrefs ({strRefFilter.Count} requested)."

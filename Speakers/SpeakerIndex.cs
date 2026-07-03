@@ -1,3 +1,4 @@
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -97,13 +98,7 @@ public static class SpeakerIndex
             ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject()
             : new JsonObject();
 
-        var existingSystemNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var group in root)
-        {
-            if (group.Value is JsonObject members)
-                foreach (var member in members)
-                    existingSystemNames.Add(member.Key);
-        }
+        var existingSystemNames = GetExistingSystemNames(root);
 
         foreach (var speaker in speakers.OrderByDescending(s => s.DisplayName is not null))
         {
@@ -118,16 +113,81 @@ public static class SpeakerIndex
                 root[groupKey] = group;
             }
 
-            group[speaker.SystemName] = speaker.Gender switch
-            {
-                Gender.Male => "M",
-                Gender.Female => "F",
-                _ => null
-            };
-
+            group[speaker.SystemName] = MapGenderToString(speaker.Gender);
             existingSystemNames.Add(speaker.SystemName);
         }
 
         File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
+
+    /// <summary>
+    /// Generates speaker-stats.json tracking historical occurrences of dialog line counts.
+    /// Returns the total number of lines where the speaker's gender is Unknown.
+    /// </summary>
+    public static int SaveOrMergeStatsFile(Dictionary<int, string> map, IEnumerable<SpeakerInfo> speakers, string path)
+    {
+        var systemNameCounts = map
+            .GroupBy(kv => kv.Value, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+        var root = new JsonObject();
+        var totalUnresolvedLines = 0;
+
+        var speakerGroups = speakers
+            .GroupBy(s => string.IsNullOrWhiteSpace(s.DisplayName) ? s.SystemName : s.DisplayName, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in speakerGroups)
+        {
+            var totalCount = group.Sum(s => systemNameCounts.GetValueOrDefault(s.SystemName, 0));
+
+            var dlgObject = new JsonObject();
+            foreach (var speaker in group)
+            {
+                var count = systemNameCounts.GetValueOrDefault(speaker.SystemName, 0);
+
+                // If gender is unknown, add its total dialogue lines to our unresolved counter
+                if (speaker.Gender == Gender.Unknown)
+                {
+                    totalUnresolvedLines += count;
+                }
+
+                dlgObject[speaker.SystemName] = new JsonObject
+                {
+                    ["Count"] = count.ToString(),
+                    ["Sex"] = MapGenderToString(speaker.Gender) ?? "U"
+                };
+            }
+
+            root[group.Key] = new JsonObject
+            {
+                ["Count"] = totalCount.ToString(),
+                ["Dlg"] = dlgObject
+            };
+        }
+
+        File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+        return totalUnresolvedLines;
+    }
+
+    // --- Extracted Reusable Logic Helpers ---
+
+    private static HashSet<string> GetExistingSystemNames(JsonObject root)
+    {
+        var existingSystemNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in root)
+        {
+            if (group.Value is JsonObject members)
+                foreach (var member in members)
+                    existingSystemNames.Add(member.Key);
+        }
+        return existingSystemNames;
+    }
+
+    private static string? MapGenderToString(Gender gender) => gender switch
+    {
+        Gender.Male => "M",
+        Gender.Female => "F",
+        _ => null
+    };
 }
