@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BgTtsVoicePatcher.Audio;
+using BgTtsVoicePatcher.Config;
 using BgTtsVoicePatcher.Cre;
 using BgTtsVoicePatcher.ResRef;
 using BgTtsVoicePatcher.Reporting;
@@ -80,10 +81,9 @@ internal static class Program
         var tlkPath = RequireOption(options, "tlk");
         var encoding = ResolveEncoding(options.GetValueOrDefault("encoding", "windows-1252"));
         var minLength = int.Parse(options.GetValueOrDefault("min-length", "2"), CultureInfo.InvariantCulture);
-        var charname = options.GetValueOrDefault("charname", "friend");
 
         var tlk = TlkFile.Load(tlkPath, encoding);
-        var cleaner = new DialogTextCleaner(charNameReplacement: charname);
+        var cleaner = BuildCleaner(LoadConfig(options));
 
         var withText = 0;
         var withSound = 0;
@@ -125,14 +125,14 @@ internal static class Program
         var creDir = options.GetValueOrDefault("cre-dir");
         var encoding = ResolveEncoding(options.GetValueOrDefault("encoding", "windows-1252"));
         var minLength = int.Parse(options.GetValueOrDefault("min-length", "2"), CultureInfo.InvariantCulture);
-        var charname = options.GetValueOrDefault("charname", "friend");
         var outMap = options.GetValueOrDefault("out-map", System.IO.Path.Combine(dlgDir, "speaker-strrefs.json"));
         var outNames = options.GetValueOrDefault("out-names", System.IO.Path.Combine(dlgDir, "speaker-names.json"));
         var outStats = options.GetValueOrDefault("out-stats", System.IO.Path.Combine(dlgDir, "speaker-stats.json"));
         var outUnmatched = options.GetValueOrDefault("out-unmatched", System.IO.Path.Combine(dlgDir, "speaker-unmatched.txt"));
 
+        var config = LoadConfig(options);
         var tlk = TlkFile.Load(tlkPath, encoding);
-        var cleaner = new DialogTextCleaner(charNameReplacement: charname);
+        var cleaner = BuildCleaner(config);
         var candidates = GetTtsCandidates(tlk, cleaner, minLength, int.MaxValue, parseAll: true);
         var candidateStrRefs = candidates.Select(c => c.Entry.StrRef).ToHashSet();
 
@@ -146,7 +146,7 @@ internal static class Program
 
         var relevantNames = relevantMap.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-        CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(creDir) ? null : new CreGenderLookup(creDir);
+        CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(creDir) ? null : new CreGenderLookup(creDir, config);
         var resolvedViaCre = 0;
 
         var speakerInfos = new List<SpeakerIndex.SpeakerInfo>();
@@ -219,7 +219,8 @@ internal static class Program
                      ?? (System.IO.Path.GetExtension(outPath).TrimStart('.').ToLowerInvariant() is "json" ? "json" : "csv");
 
         var tlk = TlkFile.Load(tlkPath, encoding);
-        var cleaner = new DialogTextCleaner();
+        var config = LoadConfig(options);
+        var cleaner = BuildCleaner(config);
 
         // File-based names/genders (from 'speakers'), live ones (--dlg-dir/--cre-dir),
         // or neither - either source is optional, both can be given together (file
@@ -246,7 +247,7 @@ internal static class Program
             liveSpeakerMap = dlgScan.StrRefToSpeaker;
 
             if (!string.IsNullOrWhiteSpace(creDir))
-                liveCreLookup = new CreGenderLookup(creDir);
+                liveCreLookup = new CreGenderLookup(creDir, config);
         }
 
         var rows = new List<DialogReportRow>();
@@ -389,6 +390,8 @@ internal static class Program
         if (!File.Exists(tlkPath))
             throw new FileNotFoundException($"dialog.tlk not found at '{tlkPath}'.");
 
+        var config = LoadConfig(options);
+
         var manifestPath = options.GetValueOrDefault(
             "manifest",
             System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(tlkPath))!, "tts-manifest.json"));
@@ -414,7 +417,7 @@ internal static class Program
             liveSpeakerMap = dlgScan.StrRefToSpeaker;
 
             if (!string.IsNullOrWhiteSpace(creDir))
-                liveCreLookup = new CreGenderLookup(creDir);
+                liveCreLookup = new CreGenderLookup(creDir, config);
         }
 
         // --skip-unmatched: a line counts as "matched" if either the file-based
@@ -428,14 +431,13 @@ internal static class Program
         var prefix = options.GetValueOrDefault("prefix", "TS").ToUpperInvariant();
         var encoding = ResolveEncoding(options.GetValueOrDefault("encoding", "windows-1252"));
         var minLength = int.Parse(options.GetValueOrDefault("min-length", "2"), CultureInfo.InvariantCulture);
-        var charname = options.GetValueOrDefault("charname", "friend");
         var limit = int.Parse(options.GetValueOrDefault("limit", int.MaxValue.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
         var dryRun = options.ContainsKey("dry-run");
 
         Directory.CreateDirectory(overrideDir);
 
         var tlk = TlkFile.Load(tlkPath, encoding);
-        var cleaner = new DialogTextCleaner(charNameReplacement: charname);
+        var cleaner = BuildCleaner(config);
 
         var strRefFilter = LoadStrRefFilter(options.GetValueOrDefault("strrefs"));
 
@@ -580,6 +582,11 @@ internal static class Program
 
     // ---- helpers ------------------------------------------------------------
 
+    private static PatcherConfig LoadConfig(IReadOnlyDictionary<string, string> options) =>
+        PatcherConfig.Load(options.GetValueOrDefault("config"));
+
+    private static DialogTextCleaner BuildCleaner(PatcherConfig config) => new(config);
+
     private static Gender ResolveGender(
         int strRef,
         GenderMap genderMap,
@@ -657,7 +664,7 @@ internal static class Program
         Console.WriteLine("  voices");
         Console.WriteLine("      List installed SAPI voices (NaturalVoiceSAPIAdapter voices show up here too).");
         Console.WriteLine();
-        Console.WriteLine("  scan --tlk <path> [--encoding <name>] [--min-length <n>] [--charname <word>]");
+        Console.WriteLine("  scan --tlk <path> [--encoding <name>] [--min-length <n>] [--config <path>]");
         Console.WriteLine("      Report how many lines are already voiced vs. TTS candidates. Writes nothing.");
         Console.WriteLine();
         Console.WriteLine("  speakers --tlk <path> --dlg-dir <dir> [--cre-dir <dir>]");
@@ -693,9 +700,8 @@ internal static class Program
         Console.WriteLine("            [--dlg-dir <dir>] [--cre-dir <dir>] [--skip-unmatched] [--strrefs <path.json>]");
         Console.WriteLine("            [--rate -10..10] [--volume 0..100] [--ogg] [--ffmpeg <path>] [--ogg-quality 0..10]");
         Console.WriteLine("            [--prefix <2 chars>] [--encoding <name>] [--min-length <n>]");
-        Console.WriteLine("            [--charname <word>] [--limit <n>] [--dry-run]");
-        Console.WriteLine("      Synthesize a WAV for every unvoiced-but-has-text line and patch its");
-        Console.WriteLine("      SoundResRef into dialog.tlk in place. A .bak copy of the original TLK is");
+        Console.WriteLine("            [--config <path>] [--limit <n>] [--dry-run]");
+        Console.WriteLine("      Synthesize a WAV for every unvoiced-but-has-text line and patch its");        Console.WriteLine("      SoundResRef into dialog.tlk in place. A .bak copy of the original TLK is");
         Console.WriteLine("      created automatically before the first write.");
         Console.WriteLine();
         Console.WriteLine("      --ogg transcodes each line to Ogg Vorbis via ffmpeg right after synthesis,");
@@ -741,6 +747,10 @@ internal static class Program
         Console.WriteLine("      already have sound, and always resynthesized fresh (the manifest's reuse check");
         Console.WriteLine("      is skipped) - this is for deliberately redoing specific lines, not just");
         Console.WriteLine("      catching up on new ones. --limit is ignored when --strrefs is given.");
+        Console.WriteLine();
+        Console.WriteLine("      PC name, race, and gender-token choices are set in patcher-config.json");
+        Console.WriteLine("      (pcName, pcRace, pcGender). Pass --config to use a different file;");
+        Console.WriteLine("      otherwise patcher-config.json next to the exe is required.");
         Console.WriteLine();
         Console.WriteLine("Examples:");
         Console.WriteLine("  dotnet run -- scan --tlk \"D:\\Games\\BG2EE\\lang\\en_US\\dialog.tlk\"");

@@ -1,13 +1,13 @@
 using System.Linq;
 using System.Text.RegularExpressions;
+using BgTtsVoicePatcher.Config;
 
 namespace BgTtsVoicePatcher.Text;
 
 /// <summary>
 /// Strips Infinity Engine dialogue markup/tokens from raw TLK text so it reads
-/// naturally when spoken aloud. The real game substitutes tokens like &lt;CHARNAME&gt;
-/// with the player's actual name at display time; since pre-baked audio can't do that,
-/// each known token is replaced with a fixed stand-in word instead (configurable).
+/// naturally when spoken aloud. All substitution tables and PC identity values come
+/// from PatcherConfig - nothing is hardcoded or passed via CLI any more.
 /// </summary>
 public sealed class DialogTextCleaner
 {
@@ -15,27 +15,27 @@ public sealed class DialogTextCleaner
     private static readonly Regex WhitespacePattern = new(@"\s+", RegexOptions.Compiled);
 
     private readonly Dictionary<string, string> _tokenMap;
+    private readonly List<(Regex Pattern, string Replacement)> _phoneticRules;
 
-    public DialogTextCleaner(Dictionary<string, string>? tokenMapOverrides = null, string charNameReplacement = "friend")
+    public DialogTextCleaner(PatcherConfig config)
     {
-        _tokenMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["CHARNAME"] = charNameReplacement,
-            ["GABBER"] = "you",
-            ["PRO_HESHE"] = "they",
-            ["PRO_HIMHER"] = "them",
-            ["PRO_HISHER"] = "their",
-            ["PRO_MANWOMAN"] = "person",
-            ["PRO_GIRLBOY"] = "kid",
-            ["PRO_BROSIS"] = "sibling",
-            ["PRO_RACE"] = "person",
-        };
+        _phoneticRules = config.GetCompiledPhoneticRules();
+        _tokenMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        if (tokenMapOverrides is not null)
+        // Gender-sensitive tokens: pick the right side based on pcGender from config.
+        foreach (var (token, values) in config.GenderTokens)
+            _tokenMap[token] = values.Pick(config.PcGender);
+
+        // Identity tokens: name- or race-bearing tokens get the fixed config values.
+        foreach (var token in config.IdentityTokens)
         {
-            foreach (var (key, value) in tokenMapOverrides)
-                _tokenMap[key] = value;
+            _tokenMap[token] = token.Contains("RACE", StringComparison.OrdinalIgnoreCase)
+                ? config.PcRace
+                : config.PcName;
         }
+
+        // GABBER always maps to the PC name as a safety net even if omitted from config.
+        _tokenMap.TryAdd("GABBER", config.PcName);
     }
 
     public string Clean(string rawText)
@@ -45,10 +45,12 @@ public sealed class DialogTextCleaner
         foreach (var (token, replacement) in _tokenMap)
             text = text.Replace($"<{token}>", replacement, StringComparison.OrdinalIgnoreCase);
 
-        // Anything still in angle brackets is an unrecognised token (e.g. one added by
-        // another mod) - drop the brackets rather than let the TTS engine read them
-        // literally as "less than ... greater than".
+        // Anything still in angle brackets is an unrecognised token - strip the brackets.
         text = UnknownTagPattern.Replace(text, string.Empty);
+
+        // Phonetic rules from config, applied in order.
+        foreach (var (pattern, replacement) in _phoneticRules)
+            text = pattern.Replace(text, replacement);
 
         text = text.Replace('\r', ' ').Replace('\n', ' ');
         text = WhitespacePattern.Replace(text, " ").Trim();
@@ -56,8 +58,7 @@ public sealed class DialogTextCleaner
         return text;
     }
 
-    /// <summary>True if there's enough real content left to bother synthesizing
-    /// (filters out blank placeholder entries, stray punctuation, etc).</summary>
+    /// <summary>True if there's enough real content left to bother synthesizing.</summary>
     public bool LooksSpeakable(string cleanedText, int minLength) =>
         cleanedText.Length >= minLength && cleanedText.Any(char.IsLetterOrDigit);
 }

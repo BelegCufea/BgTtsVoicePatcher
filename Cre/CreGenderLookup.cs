@@ -1,6 +1,7 @@
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using BgTtsVoicePatcher.Config;
 using BgTtsVoicePatcher.State;
 
 namespace BgTtsVoicePatcher.Cre;
@@ -14,65 +15,27 @@ public sealed record CreInfo(Gender Gender, int? NameStrRef);
 /// Resolves a DLG-derived speaker name to gender/name info by locating a matching
 /// .CRE file (in a directory mass-exported via Near Infinity) and reading its Sex
 /// byte and Long/Short name StrRefs.
+/// Name replacements and gender overrides come from PatcherConfig rather than
+/// being hardcoded, so they can be edited without recompiling.
 /// </summary>
 public sealed class CreGenderLookup
 {
     private readonly string _creDirectory;
     private readonly Dictionary<string, CreInfo?> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _nameReplacements;
+    private readonly Dictionary<string, Gender> _genderOverrides;
 
     // In-memory index of all files in the CRE directory to prevent tens of thousands of disk I/O hits.
     private readonly HashSet<string> _creFileIndex;
 
-    private static readonly Dictionary<string, string> HardcodedReplacements = new(StringComparer.OrdinalIgnoreCase)
-    {
-        { "BDORN", "DORN" },
-        { "HAERDA", "HAER" },
-        { "HAERD", "HAER" },
-        { "HEXXAT", "OHHEX" },
-        { "HEXXA", "OHHEX" },
-        { "VALYGAR", "VALYG" },
-        { "VALYGA", "VALYG" },
-        { "YOSHIMOX", "YOSHI" },
-        { "YOSHIMO", "YOSHI" },
-        { "YOSHIM", "YOSHI" },
-        { "EDWINW", "EDWIN"},
-        { "IMOEM", "IMOEN" },
-        { "IMRAE", "UDIMRAE" },
-        { "KORGANA", "KORGAN" },
-        { "KORGANF", "KORGAN" },
-        { "MAIRYN", "RSPIRIT" },
-        { "OHBNOOB", "NOOBER" },
-        { "BAELOTHJ", "BAELOTH" },
-        { "BAELOTHP", "BAELOTH" },
-        { "BRANWJ", "BRANWE" },
-        { "DELAINY", "DELAIN" },
-        { "KIRINHAL", "KIRINH" },
-        { "LUSETTE", "HARPASS" },
-        { "MINCS", "MINSC" },
-        { "MINSCZ", "MINSC" },
-        { "NEERAZ", "NEERA" },
-        { "SAFANZ", "SAFANA" },
-        { "TIRLANA", "IRLANA" },
-        { "VALYGARX", "VALYG" },
-        { "VICONZ", "VICONI" },
-        { "XANZ", "XAN" },
-        { "YAGCON", "HGSLV" },
-        { "RASAADZ", "RASAAD" },
-    };
-
-    private static readonly Dictionary<string, Gender> HardcodedGenderOverrides = new(StringComparer.OrdinalIgnoreCase)
-    {
-        { "EDWINW", Gender.Female },
-        { "BDMKHIIJ", Gender.Female },
-        { "BDMKHIIN", Gender.Female },
-    };
-
-    public CreGenderLookup(string creDirectory)
+    public CreGenderLookup(string creDirectory, PatcherConfig config)
     {
         if (!Directory.Exists(creDirectory))
             throw new DirectoryNotFoundException($"CRE directory not found: '{creDirectory}'");
 
         _creDirectory = creDirectory;
+        _nameReplacements = config.CreNameReplacements;
+        _genderOverrides = config.GetParsedGenderOverrides();
 
         // Initialize the file index cache once on startup
         _creFileIndex = Directory.EnumerateFiles(_creDirectory, "*.cre")
@@ -83,18 +46,7 @@ public sealed class CreGenderLookup
 
     /// <summary>Just the gender, for the live --cre-dir path in 'generate' that
     /// doesn't need a display name.</summary>
-    public Gender Resolve(string speakerName)
-    {
-        var gender = ResolveInfo(speakerName)?.Gender ?? Gender.Unknown;
-
-        // If a base file was found, check if this specific speaker name requires a gender flip
-        if (HardcodedGenderOverrides.TryGetValue(speakerName, out var overriddenGender))
-        {
-            gender = overriddenGender;
-        }
-
-        return gender;
-    }
+    public Gender Resolve(string speakerName) => ResolveInfo(speakerName)?.Gender ?? Gender.Unknown;
 
     /// <summary>The full CreInfo (gender + name StrRef), for 'speakers' to build the
     /// display-name-grouped speaker-names.json.</summary>
@@ -106,7 +58,7 @@ public sealed class CreGenderLookup
         var crePath = FindCreFile(speakerName);
         var info = crePath is null ? null : ReadCreInfo(crePath);
 
-        if (HardcodedGenderOverrides.TryGetValue(speakerName, out var overriddenGender))
+        if (_genderOverrides.TryGetValue(speakerName, out var overriddenGender))
         {
             if (info is not null)
                 info = info with { Gender = overriddenGender };
@@ -161,7 +113,7 @@ public sealed class CreGenderLookup
 
         var baseName = scriptName;
 
-        foreach (var kvp in HardcodedReplacements)
+        foreach (var kvp in _nameReplacements)
         {
             // Regex.Replace with RegexOptions.IgnoreCase handles case-insensitivity safely
             baseName = Regex.Replace(baseName, kvp.Key, kvp.Value);
