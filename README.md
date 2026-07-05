@@ -7,35 +7,60 @@ WAV exactly like it would a real recorded voice line.
 
 This intentionally does *not* try to hook the engine at runtime (no EEex, no
 memory patching of the executable). Since every possible line of dialogue
-already exists as text in `dialog.tlk` before the game even launches, there's
-no need for a live "read whatever's on screen" hook the way you'd need in a
-game with dynamic text - everything can be generated and wired up ahead of
-time, which is simpler and can't break across game patches.
+already exists as text in `dialog.tlk` before the game even launches, there is
+no need for a live hook - everything can be generated and wired up ahead of
+time.
 
 ## Requirements
 
-- Windows (System.Speech wraps SAPI via COM - this won't run on Linux/macOS).
-- .NET 10 SDK.
-- At least one installed SAPI voice. Windows ships some by default; for
-  noticeably better quality, install
+- **Windows** — System.Speech wraps SAPI via COM and will not run on Linux/macOS.
+- **.NET 10 SDK.**
+- **At least one SAPI voice.** Windows ships defaults; for noticeably better
+  quality install
   [NaturalVoiceSAPIAdapter](https://github.com/gexgd0419/NaturalVoiceSAPIAdapter)
-  (the same tool Osmodium's Pathfinder SpeechMod points people at) and any
-  natural voice you like - it'll show up via the `voices` command like any
-  other SAPI voice.
-- ffmpeg on PATH, only if you're using `--ogg`.
+  and any natural voice — it shows up via the `voices` command like any other
+  SAPI voice.
+- **ffmpeg** on PATH, only when using `--ogg`.
+- **patcher-config.json** next to the executable (shipped with the project).
+  Edit it to customise PC name/race/gender tokens, CRE name heuristics, gender
+  overrides, and phonetic cleanup rules. Pass `--config <path>` to use a
+  different file.
 
-### Running this on a different machine than the game
+### Near Infinity — mass-exporting DLG and CRE files
 
-The project folder is just code - copy it anywhere and `dotnet build`/`dotnet run`
-(NuGet needs network access the first time, to restore `System.Speech`; cached
-after that). You only need to bring along:
-- `dialog.tlk`, copied from the game (for `scan`/`generate`)
-- the `.dlg`/`.cre` export folders, if using `--dlg-dir`/`--cre-dir` for
-  automatic gendering
+The gender-resolution and speaker-identification features work by reading
+`.dlg` and `.cre` files. In a fresh EET install most of these are packed inside
+`.bif` archives rather than sitting loose in the `override` folder.
+
+**You need to export them first with Near Infinity:**
+
+1. Open Near Infinity and point it at your game directory.
+2. Press **Ctrl+M** (or **Tools → Mass Export**).
+3. Select resource types **DLG** and **CRE** (do them one at a time or
+   together).
+4. **Uncheck "Decompile scripts and dialogs"** — you want the raw binary files,
+   not decompiled text.
+5. Export each type to its own folder, e.g. `C:\Relax\BGEET\AllDlg` and
+   `C:\Relax\BGEET\AllCre`.
+6. Pass these folders as `--dlg-dir` and `--cre-dir` respectively.
+
+This is a one-time setup step. The export covers everything in the BIF archives
+plus your `override` folder, so the speaker and gender resolution is complete.
+
+### Running on a different machine
+
+The project folder is just code — copy it anywhere and `dotnet build`/`dotnet run`
+(NuGet only needs network on the first `restore`, to pull `System.Speech`).
+Bring along:
+
+- `dialog.tlk` from the game (for `scan`/`generate`)
+- Your exported `AllDlg`/`AllCre` folders, or the `speaker-*.json` files if
+  you have already run `speakers`
+- `patcher-config.json`
 - ffmpeg, if using `--ogg`
 
-Afterwards, copy the generated `.wav`/`.ogg` files and the patched `dialog.tlk`
-back to wherever the actual game lives, if that's not the same machine.
+Copy the generated `.wav`/`.ogg` files and the patched `dialog.tlk` back to
+the game machine afterwards.
 
 ## Build
 
@@ -44,123 +69,210 @@ dotnet restore
 dotnet build -c Release
 ```
 
-## Usage
+## Quick start — one command
+
+If you just want to run the full pipeline with minimal fuss:
+
+```
+dotnet run -- run --game-dir "C:\Relax\BGEET" --ogg
+```
+
+The `run` command auto-discovers `override\`, `lang\en_US\dialog.tlk`, runs
+`speakers` if needed, then `generate`, then `report`. It prompts you
+interactively to pick voices for any slot you did not supply on the command
+line. See the `run` section below for all options.
+
+## Step-by-step usage
+
+### 1. List installed voices
 
 ```
 dotnet run -- voices
-
-dotnet run -- scan --tlk "D:\Games\BG2EE\lang\en_US\dialog.tlk"
 ```
 
-For automatic male/female voice assignment, mass-export both `.dlg` and `.cre`
-resources with Near Infinity (covers BIFF-packed content, not just `override`)
-into two folders. From there you have two options:
+### 2. Scan to see how many lines are candidates
 
-**Quick, fully automatic, no review step** - point `generate` straight at both
-folders and it resolves gender live, per line, every run:
+```
+dotnet run -- scan --tlk "C:\Relax\BGEET\lang\en_US\dialog.tlk"
+```
+
+### 3. Build speaker files (recommended once, then reuse)
+
+Point `speakers` at your Near Infinity exports. With `--cre-dir` it
+pre-fills gender from each speaker's CRE Sex byte and groups entries by
+in-game display name, so the resulting `speaker-names.json` is already
+mostly filled in — you only need to fix the occasional wrong guess or
+fill in a `null` for names the heuristic could not resolve.
+
+```
+dotnet run -- speakers ^
+  --tlk "C:\Relax\BGEET\lang\en_US\dialog.tlk" ^
+  --dlg-dir "C:\Relax\BGEET\AllDlg" ^
+  --cre-dir "C:\Relax\BGEET\AllCre"
+```
+
+This writes four files into `--dlg-dir`:
+
+| File | Purpose |
+|---|---|
+| `speaker-strrefs.json` | StrRef → system name mapping. **Do not edit.** |
+| `speaker-names.json` | Grouped by display name, gender pre-filled. **Edit this** to fix nulls or wrong guesses. |
+| `speaker-stats.json` | Line counts per display name and per system name, plus unmatched summary. |
+| `speaker-unmatched.txt` | Every TTS candidate with no speaker found — mostly item/spell descriptions and journal text, not real dialogue gaps. |
+
+Re-running `speakers` is safe: it only adds brand-new names to
+`speaker-names.json`, never overwriting entries you have already reviewed.
+
+### 4. Generate
 
 ```
 dotnet run -- generate ^
-  --tlk "D:\Games\BG2EE\lang\en_US\dialog.tlk" ^
-  --override "D:\Games\BG2EE\override" ^
+  --tlk "C:\Relax\BGEET\lang\en_US\dialog.tlk" ^
+  --override "C:\Relax\BGEET\override" ^
   --male-voice "Microsoft David Desktop" ^
   --female-voice "Microsoft Hazel Desktop" ^
-  --dlg-dir "D:\Games\BG2EE\AllDlg" ^
-  --cre-dir "D:\Games\BG2EE\AllCre" ^
-  --limit 50 --dry-run
+  --speaker-map "C:\Relax\BGEET\AllDlg\speaker-strrefs.json" ^
+  --name-gender-map "C:\Relax\BGEET\AllDlg\speaker-names.json" ^
+  --ogg --limit 50 --dry-run
 ```
 
-**Reviewable** - run `speakers` first to get a file you can fix mistakes in
-before generating:
+Drop `--dry-run` and `--limit` once you are happy with the voice selection.
+
+**Important:** lines with no known speaker are always excluded — non-dialogue
+TLK entries (item descriptions, journal text, etc.) would break the game if
+voiced. The `--speaker-map` file is used as the filter; if it is absent, a
+live DLG scan is run instead. When `--speaker-map` is present the DLG scan is
+skipped entirely, saving significant time on large installs.
+
+### 5. Browse results: `report`
 
 ```
-dotnet run -- speakers --tlk "D:\Games\BG2EE\lang\en_US\dialog.tlk" --dlg-dir "D:\Games\BG2EE\AllDlg" --cre-dir "D:\Games\BG2EE\AllCre"
+dotnet run -- report ^
+  --tlk "C:\Relax\BGEET\lang\en_US\dialog.tlk" ^
+  --override "C:\Relax\BGEET\override" ^
+  --speaker-map "C:\Relax\BGEET\AllDlg\speaker-strrefs.json" ^
+  --name-gender-map "C:\Relax\BGEET\AllDlg\speaker-names.json"
 ```
 
-This writes `speaker-strrefs.json` (StrRef -> speaker, don't edit) and
-`speaker-names.json`, pre-filled and grouped by in-game display name:
+Writes a CSV (or JSON with `--format json`) of every TLK entry that has text:
+`StrRef, SystemName, RealName, Gender, HasSound, SoundResRef, SoundFileExists, Text`.
+Safe to run alongside a generation pass — pure reads, no synthesis.
+
+## `run` — full pipeline in one command
+
+```
+dotnet run -- run ^
+  --game-dir "C:\Relax\BGEET" ^
+  --male-voice "Microsoft David Desktop" ^
+  --female-voice "Microsoft Hazel Desktop" ^
+  --cre-dir "C:\Relax\BGEET\AllCre" ^
+  --dlg-dir "C:\Relax\BGEET\AllDlg" ^
+  --ogg
+```
+
+`run` derives all paths from `--game-dir`:
+
+| Path | Derived as |
+|---|---|
+| TLK | `<game-dir>\lang\<lang>\dialog.tlk` |
+| Override | `<game-dir>\override` |
+| Speaker files | `<game-dir>\lang\<lang>\speaker-*.json` |
+| Report | `<game-dir>\lang\<lang>\dialog-report.csv` |
+
+`--lang` defaults to `en_US`. If the speaker files are absent it runs
+`speakers` first. It then runs `generate` and `report`. Any voice not supplied
+on the command line is prompted for interactively.
+
+## `patcher-config.json`
+
+All token substitution, CRE name heuristics, gender overrides, and phonetic
+cleanup rules live in `patcher-config.json` next to the executable. Pass
+`--config <path>` to use a different file; the file is required (no silent
+built-in fallback).
+
+Key settings at the top of the file:
 
 ```json
 {
-  "Jaheira": { "JAHEIRA": "F", "BJAHEIR": "F", "TTJAHEIR": "F" },
-  "Minsc":   { "MINSC": "M", "BMINSC": "M" }
+  "pcName":   "friend",
+  "pcRace":   "human",
+  "pcGender": "neutral"
 }
 ```
 
-Open `speaker-names.json`, fill in any `null` (a speaker the CRE lookup
-couldn't find) or fix a wrong guess, then point `generate` at both files -
-they take priority over the live `--dlg-dir`/`--cre-dir` lookup, so your
-review sticks:
+- **`pcName`** — word replacing `<CHARNAME>` and `<GABBER>`.
+- **`pcRace`** — word replacing `<RACE>` / `<PRO_RACE>`.
+- **`pcGender`** — `"male"`, `"female"`, or `"neutral"`. Controls which side
+  of gender-sensitive tokens (`<PRO_HESHE>`, `<BROTHERSISTER>`, etc.) is used.
+  Neutral uses they/them/their/person/sibling/etc.
 
-```
-dotnet run -- generate ^
-  --tlk "D:\Games\BG2EE\lang\en_US\dialog.tlk" ^
-  --override "D:\Games\BG2EE\override" ^
-  --male-voice "Microsoft David Desktop" ^
-  --female-voice "Microsoft Hazel Desktop" ^
-  --speaker-map "D:\Games\BG2EE\AllDlg\speaker-strrefs.json" ^
-  --name-gender-map "D:\Games\BG2EE\AllDlg\speaker-names.json" ^
-  --limit 50 --dry-run
-```
+Other sections:
 
-Either way, the name-matching itself is a best-effort heuristic - it strips a
-leading `B`, a trailing `J`/`P`, trailing digits, then a trailing `A`/`E`,
-before falling back to a wildcard glob - not a guaranteed-correct one, so
-expect the occasional wrong call on an unusual name. Anything that can't be
-resolved at all falls back to `--voice`/`--default-voice`.
+| Section | Purpose |
+|---|---|
+| `creNameReplacements` | Maps DLG system names to CRE basenames when the normal heuristic fails (e.g. `HEXXAT → OHHEX`). |
+| `genderOverrides` | Per-system-name gender that bypasses CRE lookup (e.g. `EDWINW → F`). |
+| `genderTokens` | Full token table with male/female/neutral values for every IE gender token. |
+| `identityTokens` | Token names replaced by `pcName` or `pcRace`. |
+| `phoneticRules` | Regex find/replace pairs applied after token substitution (e.g. strip `*sigh*`, fix garbled em-dashes). |
 
-### Browsing everything: `report`
+## Options reference
 
-For a full read-only picture - useful while a long `generate` run is still
-going, or just to filter/sort in Excel - `report` dumps every `dialog.tlk`
-entry that has text to CSV (or JSON):
-
-```
-dotnet run -- report --tlk "D:\Games\BG2EE\lang\en_US\dialog.tlk" --speaker-map "D:\Games\BG2EE\AllDlg\speaker-strrefs.json" --name-gender-map "D:\Games\BG2EE\AllDlg\speaker-names.json" --override "D:\Games\BG2EE\override"
-```
-
-Columns: `StrRef, SystemName, RealName, Gender, HasSound, SoundResRef,
-SoundFileExists, Text`. `HasSound`/`SoundResRef` come straight from
-`dialog.tlk` itself, so `--override` is only needed for the extra
-`SoundFileExists` check (did the actual file survive on disk) - everything
-else works without it. Like `generate`, it accepts either
-`--speaker-map`/`--name-gender-map`, a live `--dlg-dir`/`--cre-dir` scan,
-both (file takes priority), or neither (StrRef/sound/text still show). No
-synthesis happens - it's pure reads, so it's fast and safe to run alongside
-a generation pass.
-
-Drop `--dry-run` (and raise/remove `--limit`) once you're happy with the
-sample output and the chosen voice.
-
-### Options
+### Common to multiple commands
 
 | Option | Default | Notes |
 |---|---|---|
-| `--tlk` | required | Path to `dialog.tlk` (typically `<GameRoot>\lang\<lang_code>\dialog.tlk`) |
-| `--override` | required (generate only) | Where WAVs are written - typically `<GameRoot>\override` |
-| `--manifest` | `<tlk dir>\tts-manifest.json` | Resumability/audit log |
-| `--voice` / `--default-voice` | system default | SAPI voice name, see `voices`. Can also be the literal word `male` or `female` to reuse whichever of `--male-voice`/`--female-voice` you already set, instead of typing it twice |
-| `--male-voice` / `--female-voice` | none | SAPI voice used for lines resolved to M/F via any of `--gender-map`, `--speaker-map`+`--name-gender-map`, or `--cre-dir`; falls back to `--voice`/`--default-voice` otherwise |
-| `--gender-map` | none | Path to a small hand-maintained JSON file `{ "12345": "F", "67890": "M" }` keyed by StrRef, for one-off manual overrides. Checked first |
-| `--speaker-map` | none | The `speaker-strrefs.json` produced by `speakers`. Checked second |
-| `--name-gender-map` | none | The reviewed `speaker-names.json` produced by `speakers`. Checked second, alongside `--speaker-map` |
-| `--dlg-dir` | `--override` | Directory of `.dlg` files to scan live for speaker names (a Near Infinity mass-export folder, or your real `override` if that already has the relevant ones). Used by both `speakers` and as `generate`'s last-resort live lookup |
-| `--cre-dir` | none | Directory of `.CRE` files (Near Infinity mass-export) - enables automatic male/female resolution via each speaker's Sex byte, checked last in `generate`. Omit to skip auto-gendering entirely |
-| `--skip-unmatched` | off | Exclude lines with no known speaker at all (the same set `speakers` writes to `speaker-unmatched.txt`) - usually non-dialogue text rather than missed NPC lines. Triggers a `--dlg-dir` scan even without `--cre-dir`. Not applied when `--strrefs` is given |
-| `--out` | `dialog-report.csv` next to the TLK | `report` only: output path |
-| `--format` | inferred from `--out`'s extension, else `csv` | `report` only: `csv` or `json` |
-| `--rate` | `0` | -10 (slow) to 10 (fast) |
-| `--ogg` | off | Transcode each line to Ogg Vorbis via ffmpeg right after synthesis, replacing the file under the same `.wav` filename (matches Voices Voices Extravaganza - its `.wav` files are actually OggS streams internally; EE sniffs the real format rather than trusting the extension) |
-| `--ffmpeg` | `ffmpeg` | Path to ffmpeg.exe if it's not on PATH |
-| `--ogg-quality` | `2` | libvorbis quality scale, 0-10 (higher = bigger file/better quality) |
-| `--volume` | `100` | 0-100 |
-| `--prefix` | `TS` | 2-char prefix for generated resrefs, e.g. `TS0009IX` |
-| `--encoding` | `windows-1252` | Use `windows-1250` for Czech fan-translated TLKs, or any other code page name |
-| `--min-length` | `2` | Skip candidates shorter than this after cleaning |
-| `--charname` | `friend` | Stand-in word for the `<CHARNAME>` token (can't know the player's actual name ahead of time) |
-| `--limit` | unlimited | Cap how many candidates are processed - use this for testing |
-| `--dry-run` | off | Show what would happen, write nothing |
-| `--strrefs` | none | Path to a flat JSON array of StrRef numbers, e.g. `[12345, 67890]`, to (re)generate exactly those lines instead of scanning the whole TLK for unvoiced ones. Listed lines are processed even if already voiced, and always resynthesized fresh (skips the manifest reuse check) - for deliberately redoing specific lines. Ignores `--limit` |
+| `--config` | `patcher-config.json` next to exe | Path to config file. Required — no built-in fallback. |
+| `--tlk` | required | Path to `dialog.tlk`. |
+| `--encoding` | `windows-1252` | Code page for TLK text. Use `windows-1250` for Czech fan-translated TLKs. |
+| `--min-length` | `2` | Skip TTS candidates shorter than this after token cleaning. |
+| `--dlg-dir` | `--override` | Directory of `.dlg` files (Near Infinity mass-export recommended). Used by `speakers` for scanning; used by `generate`/`report` as live fallback when `--speaker-map` is absent. |
+| `--cre-dir` | none | Directory of `.CRE` files (Near Infinity mass-export). Enables gender resolution from each speaker's Sex byte. |
+| `--speaker-map` | none | `speaker-strrefs.json` from `speakers`. When provided in `generate`, the DLG scan is skipped. |
+| `--name-gender-map` | none | Reviewed `speaker-names.json` from `speakers`. |
+
+### `run`
+
+| Option | Default | Notes |
+|---|---|---|
+| `--game-dir` | required | Root of the game installation. |
+| `--lang` | `en_US` | Language subfolder under `lang\`. |
+
+### `speakers`
+
+| Option | Default | Notes |
+|---|---|---|
+| `--out-map` | `<dlg-dir>\speaker-strrefs.json` | |
+| `--out-names` | `<dlg-dir>\speaker-names.json` | |
+| `--out-stats` | `<dlg-dir>\speaker-stats.json` | Per-character line counts and unmatched summary. |
+| `--out-unmatched` | `<dlg-dir>\speaker-unmatched.txt` | |
+
+### `generate`
+
+| Option | Default | Notes |
+|---|---|---|
+| `--override` | required | Where WAVs are written — `<GameRoot>\override`. |
+| `--manifest` | `<tlk-dir>\tts-manifest.json` | Resumability log. |
+| `--voice` / `--default-voice` | system default | SAPI voice for lines whose gender cannot be resolved. Can be the literal word `male` or `female` to reuse the corresponding `--male-voice`/`--female-voice`. |
+| `--male-voice` / `--female-voice` | none | SAPI voice for M/F resolved lines. |
+| `--gender-map` | none | Hand-maintained JSON `{ "12345": "F" }` — per-StrRef override, checked first. |
+| `--ogg` | off | Transcode each WAV to Ogg Vorbis via ffmpeg in-place (same `.wav` filename). Matches how Voices Voices Extravaganza works — EE sniffs the real audio format rather than trusting the extension. |
+| `--ffmpeg` | `ffmpeg` | Path to ffmpeg.exe if not on PATH. |
+| `--ogg-quality` | `2` | libvorbis quality scale 0–10. |
+| `--rate` | `0` | SAPI speech rate, -10 to 10. |
+| `--volume` | `100` | SAPI volume, 0–100. |
+| `--prefix` | `TS` | 2-char prefix for generated resrefs, e.g. `TS0009IX`. |
+| `--limit` | unlimited | Cap candidates — use for testing. |
+| `--dry-run` | off | Synthesizes WAVs but does **not** patch `dialog.tlk` and does **not** write the manifest. |
+| `--strrefs` | none | Flat JSON array of StrRef numbers, e.g. `[12345, 67890]`. Processes exactly those lines regardless of voiced state, always resynthesizes fresh, ignores `--limit`. |
+
+### `report`
+
+| Option | Default | Notes |
+|---|---|---|
+| `--override` | none | If provided, adds `SoundFileExists` column checking whether the `.wav` is actually on disk. |
+| `--out` | `dialog-report.csv` next to the TLK | |
+| `--format` | inferred from extension, else `csv` | `csv` or `json`. |
 
 ## How it works
 
@@ -170,44 +282,27 @@ sample output and the chosen voice.
   [IESDP TLK V1 page](https://gibberlings3.github.io/iesdp/file_formats/ie_formats/tlk_v1.htm).
 - "Unvoiced" = the entry has text but the sound-exists flag bit (`0x0002`) is
   unset / the `SoundResRef` is blank.
-- For each candidate, the tool cleans dialogue tokens (`<CHARNAME>` etc.),
-  synthesizes a 22.05kHz/16-bit/mono WAV via SAPI into your `override`
-  folder, then seeks directly to that entry's 26-byte record and overwrites
-  *only* the flags + `SoundResRef` bytes. Nothing else in the file moves, so
-  there's no resizing and no risk to any other entry's offsets.
+- For each candidate, the tool cleans dialogue tokens, synthesizes a
+  22.05kHz/16-bit/mono WAV via SAPI, then seeks directly to that entry's
+  26-byte record and overwrites *only* the flags + `SoundResRef` bytes.
+  Nothing else in the file moves — no resizing, no risk to any other entry's
+  offsets.
 - A `.bak` copy of the original TLK is made automatically before the first
-  write (it won't overwrite an existing `.bak`, so it's safe to re-run).
-- The manifest records, per StrRef, which resref/text-hash/status was used -
-  re-running skips entries that are already voiced or unchanged, and only
-  retries ones that previously failed.
+  write (never overwrites an existing `.bak`, so re-running is safe).
+- The manifest records, per StrRef, the resref/text-hash/voice used. Re-runs
+  skip unchanged entries and only retry failures.
 
 ## Known limitations
 
-- Windows-only (SAPI). On macOS you'd swap `VoiceSynthesizer` for the `say`
-  command the way Osmodium's Pathfinder mod does; on Linux there's no
-  first-party equivalent.
-- Resrefs are derived deterministically from the StrRef number and a 2-char
-  prefix, with no cross-check against the game's existing BIFF/override
-  resources. Collisions are astronomically unlikely with a distinctive
-  prefix, but if you want certainty, grep your extracted game resources for
-  the prefix before a big run.
-- Output is PCM WAV by default. Use `--ogg` to transcode each line to Ogg
-  Vorbis via ffmpeg right after synthesis - it replaces the file in place
-  under the same `.wav` filename, the same way Voices Voices Extravaganza's
-  own ".wav" files are actually OggS streams internally (EE sniffs the real
-  audio format rather than trusting the extension).
-- `<CHARNAME>` and the other gender/relationship tokens are replaced with a
-  fixed word since a pre-baked line can't know the player's actual name -
-  this is the same compromise real Bioware voice actors worked around.
-- The `--dlg-dir`/`--cre-dir` name matching is a heuristic tuned against one
-  specific BGEET install's naming conventions, not a verified-correct lookup.
-  It'll get plenty of names right and the occasional one wrong (especially
-  generic/shared dialogues that were never a clean 1:1 with a single
-  creature). Using `generate` directly with `--dlg-dir`/`--cre-dir` has no
-  review step - a wrong call just means a wrong-gendered voice on that line,
-  not a build failure. Run `speakers` first if you'd rather see and correct
-  the guesses before committing to a full generation pass.
-- The in-game display name in `speaker-names.json` comes from the CRE's own
-  Long name StrRef (falling back to its Short name/tooltip StrRef). Generic
-  creatures without either just get grouped under their own system name
-  instead of a real display name.
+- Windows-only (SAPI).
+- Resrefs are derived deterministically from the StrRef number and `--prefix`,
+  with no cross-check against existing BIFF/override resources. Collisions are
+  astronomically unlikely with a distinctive prefix.
+- The CRE name-matching heuristic (strip leading `B`, trailing `J`/`P`,
+  trailing digits, trailing `A`/`E`, wildcard fallback) is tuned against
+  BGEET naming conventions. It gets most names right and the occasional one
+  wrong. Run `speakers` and review `speaker-names.json` before committing to
+  a full generation pass if accuracy matters.
+- Token substitution uses the values set in `patcher-config.json`. A pre-baked
+  line cannot know the player's actual name or chosen gender — the same
+  compromise real Bioware voice actors worked around.

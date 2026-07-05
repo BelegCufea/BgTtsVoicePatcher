@@ -40,6 +40,7 @@ internal static class Program
                 "speakers" => RunSpeakers(options),
                 "report" => RunReport(options),
                 "generate" => RunGenerate(options),
+                "run" => RunAll(options),
                 "help" or "--help" or "-h" => Help(),
                 _ => Fail($"Unknown command '{command}'.")
             };
@@ -222,33 +223,8 @@ internal static class Program
         var config = LoadConfig(options);
         var cleaner = BuildCleaner(config);
 
-        // File-based names/genders (from 'speakers'), live ones (--dlg-dir/--cre-dir),
-        // or neither - either source is optional, both can be given together (file
-        // takes priority per StrRef, same as 'generate').
-        Dictionary<int, string>? fileSpeakerMap = null;
-        SpeakerGenderMap? fileGenderMap = null;
-        var speakerMapPath = options.GetValueOrDefault("speaker-map");
-        var nameGenderMapPath = options.GetValueOrDefault("name-gender-map");
-        if (!string.IsNullOrWhiteSpace(speakerMapPath) || !string.IsNullOrWhiteSpace(nameGenderMapPath))
-        {
-            fileSpeakerMap = SpeakerIndex.LoadStrRefMap(speakerMapPath ?? string.Empty);
-            fileGenderMap = SpeakerGenderMap.Load(nameGenderMapPath);
-        }
-
-        Dictionary<int, string>? liveSpeakerMap = null;
-        CreGenderLookup? liveCreLookup = null;
-        var dlgDir = options.GetValueOrDefault("dlg-dir");
-        var creDir = options.GetValueOrDefault("cre-dir");
-        if (!string.IsNullOrWhiteSpace(dlgDir))
-        {
-            Console.WriteLine($"Scanning *.dlg in: {dlgDir}");
-            var dlgScan = SpeakerIndex.Scan(dlgDir);
-            Console.WriteLine($"  Files scanned: {dlgScan.FilesScanned}, failed to parse: {dlgScan.FilesFailed}");
-            liveSpeakerMap = dlgScan.StrRefToSpeaker;
-
-            if (!string.IsNullOrWhiteSpace(creDir))
-                liveCreLookup = new CreGenderLookup(creDir, config);
-        }
+        var dlgDir = options.GetValueOrDefault("dlg-dir") ?? string.Empty;
+        var sd = ResolveSpeakerData(options, dlgDir, config);
 
         var rows = new List<DialogReportRow>();
 
@@ -261,26 +237,23 @@ internal static class Program
             string? realName = null;
             var gender = Gender.Unknown;
 
-            if (fileSpeakerMap is not null && fileSpeakerMap.TryGetValue(entry.StrRef, out var fileName))
+            if (sd.FileSpeakerMap.TryGetValue(entry.StrRef, out var fileName))
             {
                 systemName = fileName;
-                gender = fileGenderMap!.Get(fileName);
-                realName = fileGenderMap.GetDisplayName(fileName);
+                gender = sd.FileGenderMap.Get(fileName);
+                realName = sd.FileGenderMap.GetDisplayName(fileName);
             }
-            else if (liveSpeakerMap is not null && liveSpeakerMap.TryGetValue(entry.StrRef, out var liveName))
+            else if (sd.LiveSpeakerMap.TryGetValue(entry.StrRef, out var liveName))
             {
                 systemName = liveName;
-                if (liveCreLookup is not null)
+                if (sd.LiveCreLookup is not null)
                 {
-                    var info = liveCreLookup.ResolveInfo(liveName);
+                    var info = sd.LiveCreLookup.ResolveInfo(liveName);
                     gender = info?.Gender ?? Gender.Unknown;
                     realName = ResolveDisplayName(info?.NameStrRef, tlk, cleaner);
                 }
             }
 
-            // A "display name" that's just the system name echoed back means nothing
-            // real was resolved (the fallback grouping in speakers writes that) -
-            // leave it blank rather than imply we found something we didn't.
             if (realName is not null && systemName is not null && realName.Equals(systemName, StringComparison.OrdinalIgnoreCase))
                 realName = null;
 
@@ -400,31 +373,8 @@ internal static class Program
         var maleVoice = options.GetValueOrDefault("male-voice");
         var femaleVoice = options.GetValueOrDefault("female-voice");
         var genderMap = GenderMap.Load(options.GetValueOrDefault("gender-map"));
-        var fileSpeakerMap = SpeakerIndex.LoadStrRefMap(options.GetValueOrDefault("speaker-map") ?? string.Empty);
-        var fileGenderMap = SpeakerGenderMap.Load(options.GetValueOrDefault("name-gender-map"));
-
         var dlgDir = options.GetValueOrDefault("dlg-dir", overrideDir);
-        var creDir = options.GetValueOrDefault("cre-dir");
-        var skipUnmatched = options.ContainsKey("skip-unmatched");
-        var liveSpeakerMap = new Dictionary<int, string>();
-        CreGenderLookup? liveCreLookup = null;
-
-        if (!string.IsNullOrWhiteSpace(creDir) || skipUnmatched)
-        {
-            Console.WriteLine($"Scanning *.dlg in: {dlgDir}");
-            var dlgScan = SpeakerIndex.Scan(dlgDir);
-            Console.WriteLine($"  Files scanned: {dlgScan.FilesScanned}, failed to parse: {dlgScan.FilesFailed}");
-            liveSpeakerMap = dlgScan.StrRefToSpeaker;
-
-            if (!string.IsNullOrWhiteSpace(creDir))
-                liveCreLookup = new CreGenderLookup(creDir, config);
-        }
-
-        // --skip-unmatched: a line counts as "matched" if either the file-based
-        // speaker map (--speaker-map) or the live DLG scan found a speaker for it.
-        var requireKnownSpeaker = skipUnmatched
-            ? new HashSet<int>(fileSpeakerMap.Keys.Concat(liveSpeakerMap.Keys))
-            : null;
+        var sd = ResolveSpeakerData(options, dlgDir, config);
 
         var rate = int.Parse(options.GetValueOrDefault("rate", "0"), CultureInfo.InvariantCulture);
         var volume = int.Parse(options.GetValueOrDefault("volume", "100"), CultureInfo.InvariantCulture);
@@ -443,11 +393,11 @@ internal static class Program
 
         var candidates = strRefFilter is not null
             ? GetCandidatesForStrRefs(tlk, cleaner, minLength, strRefFilter)
-            : GetTtsCandidates(tlk, cleaner, minLength, limit, requireKnownSpeaker: requireKnownSpeaker);
+            : GetTtsCandidates(tlk, cleaner, minLength, limit, requireKnownSpeaker: sd.KnownSpeakers);
 
         Console.WriteLine(strRefFilter is not null
             ? $"{candidates.Count} line(s) selected from --strrefs ({strRefFilter.Count} requested)."
-            : $"{candidates.Count} unvoiced line(s) selected (limit={limit}{(skipUnmatched ? ", unmatched skipped" : "")}).");
+            : $"{candidates.Count} unvoiced line(s) selected (limit={limit}).");
 
         using var synth = new VoiceSynthesizer(voiceName, maleVoice, femaleVoice, rate, volume);
 
@@ -484,7 +434,7 @@ internal static class Program
             var (entry, cleaned) = candidates[i];
             var resRef = ResRefAllocator.ForStrRef(entry.StrRef, prefix);
             var wavPath = System.IO.Path.Combine(overrideDir, resRef + ".wav");
-            var gender = ResolveGender(entry.StrRef, genderMap, fileSpeakerMap, fileGenderMap, liveSpeakerMap, liveCreLookup);
+            var gender = ResolveGender(entry.StrRef, genderMap, sd);
             var voiceUsed = synth.VoiceNameFor(gender);
             var textHash = ComputeHash(cleaned + "|" + voiceUsed + "|" + (useOgg ? "ogg" : "pcm"));
 
@@ -556,7 +506,7 @@ internal static class Program
             foreach (var (entry, cleaned) in candidates.Take(8))
             {
                 var resRef = ResRefAllocator.ForStrRef(entry.StrRef, prefix);
-                var voiceUsed = synth.VoiceNameFor(ResolveGender(entry.StrRef, genderMap, fileSpeakerMap, fileGenderMap, liveSpeakerMap, liveCreLookup));
+                var voiceUsed = synth.VoiceNameFor(ResolveGender(entry.StrRef, genderMap, sd));
                 Console.WriteLine($"  [{entry.StrRef}] -> {resRef}.wav ({voiceUsed}) : {Truncate(cleaned, 80)}");
             }
 
@@ -587,25 +537,219 @@ internal static class Program
 
     private static DialogTextCleaner BuildCleaner(PatcherConfig config) => new(config);
 
-    private static Gender ResolveGender(
-        int strRef,
-        GenderMap genderMap,
-        Dictionary<int, string> fileSpeakerMap, SpeakerGenderMap fileGenderMap,
-        Dictionary<int, string> liveSpeakerMap, CreGenderLookup? liveCreLookup)
+    private static int RunAll(IReadOnlyDictionary<string, string> options)
+    {
+        var config = LoadConfig(options);
+        var gameDir = RequireOption(options, "game-dir");
+        var lang = options.GetValueOrDefault("lang", "en_US");
+
+        var overrideDir = System.IO.Path.Combine(gameDir, "override");
+        var langDir = System.IO.Path.Combine(gameDir, "lang", lang);
+        var tlkPath = System.IO.Path.Combine(langDir, "dialog.tlk");
+        var speakerMapPath = System.IO.Path.Combine(langDir, "speaker-strrefs.json");
+        var speakerNamesPath = System.IO.Path.Combine(langDir, "speaker-names.json");
+
+        if (!Directory.Exists(overrideDir))
+            throw new DirectoryNotFoundException($"override directory not found: '{overrideDir}'");
+        if (!File.Exists(tlkPath))
+            throw new FileNotFoundException($"dialog.tlk not found: '{tlkPath}'. Is --lang '{lang}' correct?");
+
+        var dlgDir = options.GetValueOrDefault("dlg-dir", overrideDir);
+        var creDir = options.GetValueOrDefault("cre-dir");
+
+        Console.WriteLine($"Game directory : {gameDir}");
+        Console.WriteLine($"Override       : {overrideDir}");
+        Console.WriteLine($"TLK            : {tlkPath}");
+        Console.WriteLine($"DLG scan dir   : {dlgDir}");
+        if (!string.IsNullOrWhiteSpace(creDir))
+            Console.WriteLine($"CRE dir        : {creDir}");
+        Console.WriteLine();
+
+        // -- Step 1: voice selection ----------------------------------------
+        var allVoices = VoiceSynthesizer.ListInstalledVoices().ToList();
+        if (allVoices.Count == 0)
+            throw new InvalidOperationException("No SAPI voices installed. Install at least one voice before running.");
+
+        var voiceName   = ResolveVoiceOption(options, "voice",        allVoices, "default (fallback for unresolved gender)");
+        var maleVoice   = ResolveVoiceOption(options, "male-voice",   allVoices, "male");
+        var femaleVoice = ResolveVoiceOption(options, "female-voice", allVoices, "female");
+
+        if (voiceName is null && maleVoice is null && femaleVoice is null)
+        {
+            Console.Error.WriteLine("No voices selected. At least one voice is required.");
+            return 1;
+        }
+        Console.WriteLine();
+
+        // -- Step 2: speakers -----------------------------------------------
+        if (!File.Exists(speakerMapPath) || !File.Exists(speakerNamesPath))
+        {
+            Console.WriteLine("Speaker files not found - running 'speakers' to generate them...");
+            Console.WriteLine();
+            var speakersOpts = BuildOptions(options,
+                ("tlk",          tlkPath),
+                ("dlg-dir",      dlgDir),
+                ("out-map",      speakerMapPath),
+                ("out-names",    speakerNamesPath),
+                ("out-unmatched",System.IO.Path.Combine(langDir, "speaker-unmatched.txt")));
+            if (!string.IsNullOrWhiteSpace(creDir))
+                speakersOpts["cre-dir"] = creDir;
+            var speakersResult = RunSpeakers(speakersOpts);
+            if (speakersResult != 0) return speakersResult;
+            Console.WriteLine();
+        }
+        else
+        {
+            Console.WriteLine($"Speaker files found in {langDir} - skipping 'speakers'.");
+            Console.WriteLine();
+        }
+
+        // -- Step 3: generate -----------------------------------------------
+        Console.WriteLine("Running 'generate'...");
+        Console.WriteLine();
+        var generateOpts = BuildOptions(options,
+            ("tlk",           tlkPath),
+            ("override",      overrideDir),
+            ("speaker-map",   speakerMapPath),
+            ("name-gender-map", speakerNamesPath),
+            ("dlg-dir",       dlgDir));
+        if (!string.IsNullOrWhiteSpace(creDir))      generateOpts["cre-dir"]      = creDir;
+        if (!string.IsNullOrWhiteSpace(voiceName))   generateOpts["voice"]        = voiceName;
+        if (!string.IsNullOrWhiteSpace(maleVoice))   generateOpts["male-voice"]   = maleVoice;
+        if (!string.IsNullOrWhiteSpace(femaleVoice)) generateOpts["female-voice"] = femaleVoice;
+        var generateResult = RunGenerate(generateOpts);
+
+        // -- Step 4: report -------------------------------------------------
+        Console.WriteLine();
+        Console.WriteLine("Running 'report'...");
+        var reportOpts = BuildOptions(options,
+            ("tlk",           tlkPath),
+            ("override",      overrideDir),
+            ("speaker-map",   speakerMapPath),
+            ("name-gender-map", speakerNamesPath),
+            ("out",           System.IO.Path.Combine(langDir, "dialog-report.csv")));
+        RunReport(reportOpts);
+
+        return generateResult;
+    }
+
+    /// <summary>Returns the voice name from options if already provided and non-empty;
+    /// otherwise shows the installed voice list and prompts the user to pick one.
+    /// Returns null if the user presses Enter (skip / no voice for this slot).</summary>
+    private static string? ResolveVoiceOption(
+        IReadOnlyDictionary<string, string> options, string key,
+        IReadOnlyList<string> voices, string label)
+    {
+        if (options.TryGetValue(key, out var existing) && !string.IsNullOrWhiteSpace(existing))
+            return existing;
+
+        Console.WriteLine($"Select {label} voice (number 1-{voices.Count}, or exact name; Enter to skip):");
+        for (var i = 0; i < voices.Count; i++)
+            Console.WriteLine($"  {i + 1}. {voices[i]}");
+        Console.Write("> ");
+        var input = Console.ReadLine()?.Trim();
+
+        if (string.IsNullOrEmpty(input))
+            return null;
+
+        if (int.TryParse(input, out var idx) && idx >= 1 && idx <= voices.Count)
+        {
+            // Strip the "  (culture, gender, age)" suffix to get just the SAPI name.
+            var full = voices[idx - 1];
+            var sep = full.IndexOf("  (", StringComparison.Ordinal);
+            return sep > 0 ? full[..sep].Trim() : full.Trim();
+        }
+
+        return input; // treat as a literal SAPI voice name
+    }
+
+    /// <summary>Clones the base options dictionary and merges in the given overrides,
+    /// without mutating the original. Used to build per-sub-command option sets in RunAll.</summary>
+    private static Dictionary<string, string> BuildOptions(
+        IReadOnlyDictionary<string, string> baseOptions,
+        params (string Key, string Value)[] overrides)
+    {
+        var result = new Dictionary<string, string>(baseOptions, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in overrides)
+            result[key] = value;
+        return result;
+    }
+
+    /// <summary>All speaker-resolution data for a single command invocation, pre-built
+    /// so RunGenerate and RunReport don't duplicate the loading + scanning logic.</summary>
+    private sealed record SpeakerData(
+        Dictionary<int, string> FileSpeakerMap,
+        SpeakerGenderMap FileGenderMap,
+        Dictionary<int, string> LiveSpeakerMap,
+        CreGenderLookup? LiveCreLookup,
+        HashSet<int> KnownSpeakers);
+
+    /// <summary>
+    /// Loads file-based speaker data (--speaker-map / --name-gender-map) and, only
+    /// when actually needed, scans DLGs and/or creates a CRE lookup:
+    ///
+    ///   • DLG scan is SKIPPED when --speaker-map is present and non-empty AND
+    ///     --cre-dir is not provided - the file data is sufficient for both the
+    ///     unmatched filter and gender resolution.
+    ///   • DLG scan runs if --speaker-map is empty (need live data for the filter)
+    ///     OR if --cre-dir is given (need liveSpeakerMap to drive the CRE lookup).
+    ///   • CreGenderLookup is only built when --cre-dir is provided.
+    /// </summary>
+    private static SpeakerData ResolveSpeakerData(
+        IReadOnlyDictionary<string, string> options,
+        string dlgDir,
+        PatcherConfig config)
+    {
+        var fileSpeakerMap = SpeakerIndex.LoadStrRefMap(options.GetValueOrDefault("speaker-map") ?? string.Empty);
+        var fileGenderMap  = SpeakerGenderMap.Load(options.GetValueOrDefault("name-gender-map"));
+        var creDir         = options.GetValueOrDefault("cre-dir");
+
+        var hasSpeakerFile = fileSpeakerMap.Count > 0;
+        var needCreLookup  = !string.IsNullOrWhiteSpace(creDir);
+        var needDlgScan    = !hasSpeakerFile || needCreLookup;
+
+        var liveSpeakerMap = new Dictionary<int, string>();
+        CreGenderLookup? liveCreLookup = null;
+
+        if (needDlgScan)
+        {
+            var reason = !hasSpeakerFile ? "no --speaker-map provided" : "--cre-dir requested";
+            Console.WriteLine($"Scanning *.dlg in: {dlgDir} ({reason})");
+            var dlgScan = SpeakerIndex.Scan(dlgDir);
+            Console.WriteLine($"  Files scanned: {dlgScan.FilesScanned}, failed: {dlgScan.FilesFailed}");
+            liveSpeakerMap = dlgScan.StrRefToSpeaker;
+        }
+        else
+        {
+            Console.WriteLine($"Using --speaker-map ({fileSpeakerMap.Count} entries) — DLG scan skipped.");
+        }
+
+        if (needCreLookup)
+            liveCreLookup = new CreGenderLookup(creDir!, config);
+
+        var knownSpeakers = new HashSet<int>(fileSpeakerMap.Keys.Concat(liveSpeakerMap.Keys));
+        if (knownSpeakers.Count == 0)
+            Console.WriteLine("  Warning: no speaker data found. No lines will be selected.");
+
+        Console.WriteLine();
+        return new SpeakerData(fileSpeakerMap, fileGenderMap, liveSpeakerMap, liveCreLookup, knownSpeakers);
+    }
+
+    private static Gender ResolveGender(int strRef, GenderMap genderMap, SpeakerData sd)
     {
         var gender = genderMap.Get(strRef);
         if (gender != Gender.Unknown)
             return gender;
 
-        if (fileSpeakerMap.TryGetValue(strRef, out var fileName))
+        if (sd.FileSpeakerMap.TryGetValue(strRef, out var fileName))
         {
-            gender = fileGenderMap.Get(fileName);
+            gender = sd.FileGenderMap.Get(fileName);
             if (gender != Gender.Unknown)
                 return gender;
         }
 
-        if (liveCreLookup is not null && liveSpeakerMap.TryGetValue(strRef, out var liveName))
-            gender = liveCreLookup.Resolve(liveName);
+        if (sd.LiveCreLookup is not null && sd.LiveSpeakerMap.TryGetValue(strRef, out var liveName))
+            gender = sd.LiveCreLookup.Resolve(liveName);
 
         return gender;
     }
@@ -661,6 +805,15 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine();
+        Console.WriteLine("  run --game-dir <path> [--lang <code>] [--voice <n>] [--male-voice <n>] [--female-voice <n>]");
+        Console.WriteLine("       [--dlg-dir <dir>] [--cre-dir <dir>] [--ogg] [--ffmpeg <path>] [--ogg-quality 0..10]");
+        Console.WriteLine("       [--rate -10..10] [--volume 0..100] [--prefix <2 chars>] [--limit <n>] [--dry-run]");
+        Console.WriteLine("       [--config <path>]");
+        Console.WriteLine("      Full pipeline from a single game directory. Determines override/, lang/<code>/dialog.tlk");
+        Console.WriteLine("      automatically (--lang defaults to en_US). If speaker-strrefs.json and speaker-names.json");
+        Console.WriteLine("      are absent from the lang directory, runs 'speakers' first to generate them, then runs");
+        Console.WriteLine("      'generate', then 'report'. Prompts interactively for any voice not given on the command line.");
+        Console.WriteLine();
         Console.WriteLine("  voices");
         Console.WriteLine("      List installed SAPI voices (NaturalVoiceSAPIAdapter voices show up here too).");
         Console.WriteLine();
@@ -668,7 +821,7 @@ internal static class Program
         Console.WriteLine("      Report how many lines are already voiced vs. TTS candidates. Writes nothing.");
         Console.WriteLine();
         Console.WriteLine("  speakers --tlk <path> --dlg-dir <dir> [--cre-dir <dir>]");
-        Console.WriteLine("            [--out-map <path>] [--out-names <path>] [--out-unmatched <path>]");
+        Console.WriteLine("            [--out-map <path>] [--out-names <path>] [--out-stats <path>] [--out-unmatched <path>]");
         Console.WriteLine("      Scans every *.dlg in --dlg-dir for NPC lines and writes:");
         Console.WriteLine("        speaker-strrefs.json   (auto-generated StrRef -> speaker name, don't edit)");
         Console.WriteLine("        speaker-names.json     (speaker names grouped by in-game display name, e.g.");
@@ -678,6 +831,10 @@ internal static class Program
         Console.WriteLine("                                 its Sex byte); open it to fill in any null or fix a wrong");
         Console.WriteLine("                                 guess. Reruns only add brand-new names, never touching");
         Console.WriteLine("                                 ones already in the file.");
+        Console.WriteLine("        speaker-stats.json     (per-display-name and per-system-name line counts, plus");
+        Console.WriteLine("                                 a summary of how many TTS candidates had no speaker found.");
+        Console.WriteLine("                                 Useful for spotting which characters have the most unvoiced");
+        Console.WriteLine("                                 lines and for reviewing coverage after a generate run.)");
         Console.WriteLine("        speaker-unmatched.txt  (every TTS candidate with no speaker found at all, for");
         Console.WriteLine("                                 review - usually non-dialogue text, not a real gap)");
         Console.WriteLine();
@@ -697,7 +854,7 @@ internal static class Program
         Console.WriteLine("            [--manifest <path>] [--voice <name>] [--default-voice <name>]");
         Console.WriteLine("            [--male-voice <name>] [--female-voice <name>]");
         Console.WriteLine("            [--gender-map <path.json>] [--speaker-map <path.json>] [--name-gender-map <path.json>]");
-        Console.WriteLine("            [--dlg-dir <dir>] [--cre-dir <dir>] [--skip-unmatched] [--strrefs <path.json>]");
+        Console.WriteLine("            [--dlg-dir <dir>] [--cre-dir <dir>] [--strrefs <path.json>]");
         Console.WriteLine("            [--rate -10..10] [--volume 0..100] [--ogg] [--ffmpeg <path>] [--ogg-quality 0..10]");
         Console.WriteLine("            [--prefix <2 chars>] [--encoding <name>] [--min-length <n>]");
         Console.WriteLine("            [--config <path>] [--limit <n>] [--dry-run]");
@@ -735,25 +892,21 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("      Anything still unresolved after all three falls back to --voice/--default-voice.");
         Console.WriteLine();
-        Console.WriteLine("      --skip-unmatched excludes lines with no known speaker at all (from either");
-        Console.WriteLine("      --speaker-map or a live --dlg-dir scan) - the same set 'speakers' writes to");
-        Console.WriteLine("      speaker-unmatched.txt, which is usually non-dialogue text like item/spell");
-        Console.WriteLine("      descriptions rather than missed NPC lines. Triggers a --dlg-dir scan even");
-        Console.WriteLine("      without --cre-dir. Not applied when --strrefs is given.");
+        Console.WriteLine("      Unmatched lines (no known speaker in --speaker-map or --dlg-dir scan) are");
+        Console.WriteLine("      always excluded - non-dialogue TLK entries like item/spell descriptions and");
+        Console.WriteLine("      journal text would break the game if voiced. The DLG scan always runs.");
         Console.WriteLine();
         Console.WriteLine("      --strrefs points to a flat JSON array of StrRef numbers, e.g. [12345, 67890],");
-        Console.WriteLine("      to (re)generate exactly those lines instead of scanning the whole TLK. Unlike");
-        Console.WriteLine("      the normal unvoiced-only selection, listed lines are processed even if they");
-        Console.WriteLine("      already have sound, and always resynthesized fresh (the manifest's reuse check");
-        Console.WriteLine("      is skipped) - this is for deliberately redoing specific lines, not just");
-        Console.WriteLine("      catching up on new ones. --limit is ignored when --strrefs is given.");
+        Console.WriteLine("      to (re)generate exactly those lines. Listed lines are processed even if already");
+        Console.WriteLine("      voiced, and always resynthesized fresh. --limit is ignored when --strrefs is given.");
         Console.WriteLine();
         Console.WriteLine("      PC name, race, and gender-token choices are set in patcher-config.json");
         Console.WriteLine("      (pcName, pcRace, pcGender). Pass --config to use a different file;");
         Console.WriteLine("      otherwise patcher-config.json next to the exe is required.");
         Console.WriteLine();
         Console.WriteLine("Examples:");
-        Console.WriteLine("  dotnet run -- scan --tlk \"D:\\Games\\BG2EE\\lang\\en_US\\dialog.tlk\"");
-        Console.WriteLine("  dotnet run -- generate --tlk \"D:\\Games\\BG2EE\\lang\\en_US\\dialog.tlk\" --override \"D:\\Games\\BG2EE\\override\" --voice \"Microsoft David Desktop\" --limit 50 --dry-run");
+        Console.WriteLine("  dotnet run -- run --game-dir \"C:\\Relax\\BGEET\" --ogg");
+        Console.WriteLine("  dotnet run -- run --game-dir \"C:\\Relax\\BGEET\" --male-voice \"Microsoft David Desktop\" --female-voice \"Microsoft Hazel Desktop\" --ogg --cre-dir \"C:\\Relax\\BGEET\\AllCre\"");
+        Console.WriteLine("  dotnet run -- generate --tlk \"D:\\Games\\BG2EE\\lang\\en_US\\dialog.tlk\" --override \"D:\\Games\\BG2EE\\override\" --speaker-map \"...\\speaker-strrefs.json\" --limit 50 --dry-run");
     }
 }
