@@ -1,8 +1,7 @@
 {
   "profiles": {
     "BgTtsVoicePatcher": {
-      "commandName": "Project",
-      "commandLineArgs": "speakers --tlk \"C:\\Temp\\BGEET\\dialog.tlk\" --dlg-dir \"C:\\Temp\\BGEET\\AllDlg\" --cre-dir \"C:\\Temp\\BGEET\\AllCre\""
+      "commandName": "Project"
     }
   }
 }

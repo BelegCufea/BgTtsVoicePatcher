@@ -41,6 +41,8 @@ internal static class Program
                 "report" => RunReport(options),
                 "generate" => RunGenerate(options),
                 "run" => RunAll(options),
+                "repatch" => RunRepatch(options),
+                "unpatch" => RunUnpatch(options),
                 "help" or "--help" or "-h" => Help(),
                 _ => Fail($"Unknown command '{command}'.")
             };
@@ -735,6 +737,211 @@ internal static class Program
         return new SpeakerData(fileSpeakerMap, fileGenderMap, liveSpeakerMap, liveCreLookup, knownSpeakers);
     }
 
+    /// <summary>Resolves dialog.tlk path and manifest path from either --game-dir+--lang
+    /// or --tlk, with --manifest as an optional override for the manifest location.</summary>
+    private static (string TlkPath, string ManifestPath) ResolveTlkAndManifest(
+        IReadOnlyDictionary<string, string> options)
+    {
+        string tlkPath;
+        if (options.TryGetValue("game-dir", out var gameDir))
+        {
+            var lang = options.GetValueOrDefault("lang", "en_US");
+            tlkPath = System.IO.Path.Combine(gameDir, "lang", lang, "dialog.tlk");
+        }
+        else
+        {
+            tlkPath = RequireOption(options, "tlk");
+        }
+
+        var manifestPath = options.GetValueOrDefault(
+            "manifest",
+            System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(tlkPath))!,
+                "tts-manifest.json"));
+
+        return (tlkPath, manifestPath);
+    }
+
+    private static int RunRepatch(IReadOnlyDictionary<string, string> options)
+    {
+        var (tlkPath, manifestPath) = ResolveTlkAndManifest(options);
+        var dryRun = options.ContainsKey("dry-run");
+        var encoding = ResolveEncoding(options.GetValueOrDefault("encoding", "windows-1252"));
+
+        if (!File.Exists(tlkPath))
+            throw new FileNotFoundException($"dialog.tlk not found at '{tlkPath}'.");
+        if (!File.Exists(manifestPath))
+            throw new FileNotFoundException(
+                $"Manifest not found at '{manifestPath}'. Run 'generate' first to create it.");
+
+        var manifest = VoiceManifest.LoadOrCreate(manifestPath);
+        var tlk = TlkFile.Load(tlkPath, encoding);
+
+        var toRepatch = manifest.Entries
+            .Where(e => e.Status == VoiceEntryStatus.Patched)
+            .OrderBy(e => e.StrRef)
+            .ToList();
+
+        Console.WriteLine($"TLK:      {tlkPath}");
+        Console.WriteLine($"Manifest: {manifestPath}");
+        Console.WriteLine($"Patched entries in manifest: {toRepatch.Count}");
+        Console.WriteLine();
+
+        if (toRepatch.Count == 0)
+        {
+            Console.WriteLine("Nothing to repatch.");
+            return 0;
+        }
+
+        var alreadyCorrect = toRepatch.Count(e =>
+            e.StrRef < tlk.Entries.Count &&
+            string.Equals(tlk.Entries[e.StrRef].SoundResRef, e.ResRef, StringComparison.OrdinalIgnoreCase));
+
+        Console.WriteLine($"Already correct in TLK: {alreadyCorrect} / {toRepatch.Count}");
+        Console.WriteLine($"Need repatching:         {toRepatch.Count - alreadyCorrect}");
+        Console.WriteLine();
+
+        if (dryRun)
+        {
+            Console.WriteLine("Dry run — no changes. Sample:");
+            foreach (var e in toRepatch.Where(e =>
+                e.StrRef < tlk.Entries.Count &&
+                !string.Equals(tlk.Entries[e.StrRef].SoundResRef, e.ResRef, StringComparison.OrdinalIgnoreCase)).Take(10))
+            {
+                Console.WriteLine($"  [{e.StrRef}] '{tlk.Entries[e.StrRef].SoundResRef}' -> '{e.ResRef}'");
+            }
+            Console.WriteLine("Re-run without --dry-run to apply.");
+            return 0;
+        }
+
+        var backupPath = EnsureBackup(tlkPath);
+        Console.WriteLine($"Backup: {backupPath}");
+
+        using var patcher = TlkPatcher.Open(tlkPath);
+        var repatched = 0;
+        var skipped = 0;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+
+        for (var i = 0; i < toRepatch.Count; i++)
+        {
+            var me = toRepatch[i];
+            if (me.StrRef >= tlk.Entries.Count) { skipped++; continue; }
+
+            var te = tlk.Entries[me.StrRef];
+            if (!string.Equals(te.SoundResRef, me.ResRef, StringComparison.OrdinalIgnoreCase))
+            {
+                patcher.ApplySound(te, me.ResRef);
+                repatched++;
+            }
+
+            if (i == 0 || i == toRepatch.Count - 1 || timer.ElapsedMilliseconds >= 1000)
+            {
+                Console.WriteLine($"  progress: {i + 1}/{toRepatch.Count} (repatched {repatched}, skipped {skipped})");
+                timer.Restart();
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Done. Repatched: {repatched}, already correct: {alreadyCorrect}, skipped: {skipped}.");
+        return skipped > 0 ? 2 : 0;
+    }
+
+    private static int RunUnpatch(IReadOnlyDictionary<string, string> options)
+    {
+        var (tlkPath, manifestPath) = ResolveTlkAndManifest(options);
+        var dryRun = options.ContainsKey("dry-run");
+        var encoding = ResolveEncoding(options.GetValueOrDefault("encoding", "windows-1252"));
+
+        if (!File.Exists(tlkPath))
+            throw new FileNotFoundException($"dialog.tlk not found at '{tlkPath}'.");
+        if (!File.Exists(manifestPath))
+            throw new FileNotFoundException(
+                $"Manifest not found at '{manifestPath}'. Only entries this tool previously patched can be unpatched.");
+
+        var manifest = VoiceManifest.LoadOrCreate(manifestPath);
+        var tlk = TlkFile.Load(tlkPath, encoding);
+
+        var toUnpatch = manifest.Entries
+            .Where(e => e.Status == VoiceEntryStatus.Patched)
+            .OrderBy(e => e.StrRef)
+            .ToList();
+
+        Console.WriteLine($"TLK:      {tlkPath}");
+        Console.WriteLine($"Manifest: {manifestPath}");
+        Console.WriteLine($"Patched entries in manifest: {toUnpatch.Count}");
+        Console.WriteLine();
+
+        if (toUnpatch.Count == 0)
+        {
+            Console.WriteLine("Nothing to unpatch.");
+            return 0;
+        }
+
+        // Pre-scan: how many SoundResRefs still match what we wrote vs changed by something else.
+        var matchCount  = toUnpatch.Count(e =>
+            e.StrRef < tlk.Entries.Count &&
+            string.Equals(tlk.Entries[e.StrRef].SoundResRef, e.ResRef, StringComparison.OrdinalIgnoreCase));
+        var mismatchCount = toUnpatch.Count - matchCount;
+
+        Console.WriteLine($"Will clear:  {matchCount} (SoundResRef matches manifest)");
+        if (mismatchCount > 0)
+            Console.WriteLine($"Will skip:   {mismatchCount} (SoundResRef changed by another mod - will not touch)");
+        Console.WriteLine();
+
+        if (dryRun)
+        {
+            Console.WriteLine("Dry run — no changes. Sample of entries that would be cleared:");
+            foreach (var e in toUnpatch
+                .Where(e => e.StrRef < tlk.Entries.Count &&
+                    string.Equals(tlk.Entries[e.StrRef].SoundResRef, e.ResRef, StringComparison.OrdinalIgnoreCase))
+                .Take(10))
+            {
+                Console.WriteLine($"  [{e.StrRef}] '{e.ResRef}' -> (blank)");
+            }
+            Console.WriteLine("Re-run without --dry-run to apply.");
+            return 0;
+        }
+
+        var backupPath = EnsureBackup(tlkPath);
+        Console.WriteLine($"Backup: {backupPath}");
+
+        using var patcher = TlkPatcher.Open(tlkPath);
+        var cleared = 0;
+        var skipped = 0;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+
+        for (var i = 0; i < toUnpatch.Count; i++)
+        {
+            var me = toUnpatch[i];
+            if (me.StrRef >= tlk.Entries.Count) { skipped++; continue; }
+
+            var te = tlk.Entries[me.StrRef];
+            if (!string.Equals(te.SoundResRef, me.ResRef, StringComparison.OrdinalIgnoreCase))
+            {
+                skipped++;
+            }
+            else
+            {
+                patcher.ClearSound(te);
+                cleared++;
+            }
+
+            if (i == 0 || i == toUnpatch.Count - 1 || timer.ElapsedMilliseconds >= 1000)
+            {
+                Console.WriteLine($"  progress: {i + 1}/{toUnpatch.Count} (cleared {cleared}, skipped {skipped})");
+                timer.Restart();
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"Done. Cleared: {cleared}, skipped: {skipped}.");
+        if (skipped > 0)
+            Console.WriteLine("  Skipped entries were not touched — their SoundResRef had been changed by something else.");
+        Console.WriteLine("Note: .wav/.ogg files in override are NOT deleted — they remain on disk");
+        Console.WriteLine("      but are no longer referenced by dialog.tlk.");
+        return skipped > 0 ? 2 : 0;
+    }
+
     private static Gender ResolveGender(int strRef, GenderMap genderMap, SpeakerData sd)
     {
         var gender = genderMap.Get(strRef);
@@ -838,7 +1045,20 @@ internal static class Program
         Console.WriteLine("        speaker-unmatched.txt  (every TTS candidate with no speaker found at all, for");
         Console.WriteLine("                                 review - usually non-dialogue text, not a real gap)");
         Console.WriteLine();
-        Console.WriteLine("  report --tlk <path> [--override <dir>]");
+        Console.WriteLine("  repatch [--game-dir <path> [--lang <code>]] | [--tlk <path>] [--manifest <path>] [--dry-run]");
+        Console.WriteLine("      Re-applies every SoundResRef from the manifest back into dialog.tlk without");
+        Console.WriteLine("      re-synthesizing audio. Use after anything overwrites dialog.tlk (game patch,");
+        Console.WriteLine("      WeiDU reinstall, etc.) while your .wav/.ogg files are still in override.");
+        Console.WriteLine("      Entries already set correctly in the TLK are skipped silently.");
+        Console.WriteLine("      --dry-run shows what would change without writing anything.");
+        Console.WriteLine();
+        Console.WriteLine("  unpatch [--game-dir <path> [--lang <code>]] | [--tlk <path>] [--manifest <path>] [--dry-run]");
+        Console.WriteLine("      Removes every SoundResRef this tool previously wrote, leaving dialog.tlk as");
+        Console.WriteLine("      if generate had never run. Only touches entries whose current SoundResRef");
+        Console.WriteLine("      still matches what the manifest recorded — entries changed by another mod");
+        Console.WriteLine("      are skipped with a warning. .wav/.ogg files in override are NOT deleted.");
+        Console.WriteLine("      --dry-run shows what would change without writing anything.");
+        Console.WriteLine();
         Console.WriteLine("          [--dlg-dir <dir>] [--cre-dir <dir>] [--speaker-map <path>] [--name-gender-map <path>]");
         Console.WriteLine("          [--out <path>] [--format csv|json] [--encoding <name>]");
         Console.WriteLine("      Read-only dump of every dialog.tlk entry that has text: StrRef, speaker system");

@@ -1,13 +1,16 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <!-- System.Speech wraps Windows SAPI via COM, so this only runs on Windows. -->
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>BgTtsVoicePatcher</RootNamespace>
+	<VersionPrefix>0.0.1</VersionPrefix>
+	<VersionSuffix>beta</VersionSuffix>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <Version>$(VersionPrefix)-$(VersionSuffix)</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +20,18 @@
          .NET 10, the legacy codepages it used to provide (windows-1250/1252, etc.)
          ship directly in the shared framework, so the package adds nothing for this
          TFM - the .NET 10 SDK flags it with NU1510 if you add it back. -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="patcher-config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

@@ -52,6 +52,26 @@ public sealed class TlkPatcher : IDisposable
         entry.SoundResRef = resRef;
     }
 
+    /// <summary>
+    /// The inverse of ApplySound: clears the "sound exists" flag and zeroes the
+    /// SoundResRef back to blank. Used by unpatch to remove this tool's entries
+    /// from dialog.tlk without touching anything written by the base game or other mods.
+    /// </summary>
+    public void ClearSound(TlkEntry entry)
+    {
+        var blankResRef = new byte[8];
+        var newFlags = (ushort)(entry.Flags & ~TlkEntry.FlagSoundExists);
+
+        _stream.Seek(entry.EntryFileOffset, SeekOrigin.Begin);
+        _writer.Write(newFlags);
+        _writer.Write(blankResRef);
+        _writer.Flush();
+        _stream.Flush(flushToDisk: true);
+
+        entry.Flags = newFlags;
+        entry.SoundResRef = string.Empty;
+    }
+
     public void Dispose()
     {
         _writer.Dispose();
