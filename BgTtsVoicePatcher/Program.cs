@@ -18,7 +18,7 @@ namespace BgTtsVoicePatcher;
 
 internal static class Program
 {
-    const string defaultEncoding = "utf-8";
+    static Encoding defaultEncoding = Encoding.UTF8;
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -83,7 +83,7 @@ internal static class Program
     private static int RunScan(IReadOnlyDictionary<string, string> options)
     {
         var tlkPath = RequireOption(options, "tlk");
-        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding));
+        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding.HeaderName));
         var minLength = int.Parse(options.GetValueOrDefault("min-length", "2"), CultureInfo.InvariantCulture);
 
         var tlk = TlkFile.Load(tlkPath, encoding);
@@ -127,7 +127,7 @@ internal static class Program
         var tlkPath = RequireOption(options, "tlk");
         var dlgDir = RequireOption(options, "dlg-dir");
         var creDir = options.GetValueOrDefault("cre-dir");
-        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding));
+        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding.HeaderName));
         var minLength = int.Parse(options.GetValueOrDefault("min-length", "2"), CultureInfo.InvariantCulture);
         var outMap = options.GetValueOrDefault("out-map", System.IO.Path.Combine(dlgDir, "speaker-strrefs.json"));
         var outNames = options.GetValueOrDefault("out-names", System.IO.Path.Combine(dlgDir, "speaker-names.json"));
@@ -212,7 +212,7 @@ internal static class Program
     private static int RunReport(IReadOnlyDictionary<string, string> options)
     {
         var tlkPath = RequireOption(options, "tlk");
-        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding));
+        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding.HeaderName));
         var overrideDir = options.GetValueOrDefault("override");
 
         var outPath = options.GetValueOrDefault(
@@ -382,7 +382,7 @@ internal static class Program
         var rate = int.Parse(options.GetValueOrDefault("rate", "0"), CultureInfo.InvariantCulture);
         var volume = int.Parse(options.GetValueOrDefault("volume", "100"), CultureInfo.InvariantCulture);
         var prefix = options.GetValueOrDefault("prefix", "TS").ToUpperInvariant();
-        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding));
+        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding.HeaderName));
         var minLength = int.Parse(options.GetValueOrDefault("min-length", "2"), CultureInfo.InvariantCulture);
         var limit = int.Parse(options.GetValueOrDefault("limit", int.MaxValue.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
         var dryRun = options.ContainsKey("dry-run");
@@ -767,7 +767,7 @@ internal static class Program
     {
         var (tlkPath, manifestPath) = ResolveTlkAndManifest(options);
         var dryRun = options.ContainsKey("dry-run");
-        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding));
+        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding.HeaderName));
 
         if (!File.Exists(tlkPath))
             throw new FileNotFoundException($"dialog.tlk not found at '{tlkPath}'.");
@@ -851,7 +851,7 @@ internal static class Program
     {
         var (tlkPath, manifestPath) = ResolveTlkAndManifest(options);
         var dryRun = options.ContainsKey("dry-run");
-        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding));
+        var encoding = TlkEncodings.Resolve(options.GetValueOrDefault("encoding", defaultEncoding.HeaderName));
 
         if (!File.Exists(tlkPath))
             throw new FileNotFoundException($"dialog.tlk not found at '{tlkPath}'.");

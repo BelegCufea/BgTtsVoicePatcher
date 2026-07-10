@@ -84,14 +84,14 @@
       "pattern": "—",
       "replacement": "...",
       "comment": "em-dash"
-    },  
+    },
     {
       "pattern": "\\b[Uu]st\\b",
       "replacement": "Oost",
       "comment": "Force the engine to read the name Ust as a phonetic word instead of the initialism U-S-T"
-    },  
+    },
     {
-      "pattern": "\\*(?:[Aa]chooo?|ahem|belch|boom|bu+r[pp]|cackle|chuckle|cough|crunch|er[pf]|gag|gasp|giggle|glug|groan|growl|gr+m+ble|gr+w+r+|gurgle|gurk|hack|hic(?:cup)?|his+s+|hum|moan|mumble|mutter|nngh|pant|retch|shiver|shrug|snarl|snicker|sniff(?:le)?|snork|snort|snore|sob|squeak|u+r[pp]|whinn+e|whistle|yawn)[!\\s]*\\*",
+      "pattern": "\\*(?:[Aa]chooo?|ahem|belch|boom|bu+r[pp]|cackle|chuckle|cough|crunch|er[pf]|gag|gasp|giggle|glug|groan|growl|gr+m+ble|gr+w+r+|gurgle|gurk|hack|hic(?:cup)?|his+s+|hum|moan|mumble|mutter|nngh|pant|retch|sigh|shiver|shrug|snarl|snicker|sniff(?:le)?|snork|snort|snore|sob|squeak|u+r[pp]|whinn+e|whistle|yawn)[!\\s]*\\*",
       "replacement": "",
       "comment": "silence vocal sounds, audio effects, and onomatopoeia within asterisks"
     },
@@ -99,6 +99,6 @@
       "pattern": "\\*([^*]+)\\*",
       "replacement": "$1",
       "comment": "strip outer asterisks from remaining text, leaving the inner word intact"
-    } 
+    }
   ]
 }

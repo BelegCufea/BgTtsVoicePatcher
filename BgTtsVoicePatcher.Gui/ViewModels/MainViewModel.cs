@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Data;
@@ -14,6 +15,7 @@ using BgTtsVoicePatcher.Gui.Engine;
 using BgTtsVoicePatcher.Gui.Models;
 using BgTtsVoicePatcher.Speech;
 using BgTtsVoicePatcher.State;
+using BgTtsVoicePatcher.Text;
 using Microsoft.Win32;
 
 namespace BgTtsVoicePatcher.Gui.ViewModels;
@@ -58,6 +60,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 LoadConfigForTlk(value);
         }
     }
+
+    public EncodingInfo[]? AvailableEncodings { get; } = TlkEncodings.GetAvailableEncodings();
+
+    public EncodingInfo? SelectedEncoding { get; set; } =
+        TlkEncodings.GetAvailableEncodings()!
+            .First(e => e.CodePage == Encoding.UTF8.CodePage);
 
     public RelayCommand BrowseGameDirCommand { get; }
     public RelayCommand ScanForTlkCommand { get; }
@@ -518,7 +526,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand NextStepCommand { get; }
     public RelayCommand PreviousStepCommand { get; }
 
-    private const int StepCount = 7;
+    private const int StepCount = 5;
 
     // ==================================================================
     // Shared run state / log
@@ -621,6 +629,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             GameDir = GameDir,
             TlkPath = SelectedTlkPath!,
+            Encoding = SelectedEncoding?.GetEncoding() ?? Encoding.UTF8,
             DlgDir = string.IsNullOrWhiteSpace(DlgDir) ? null : DlgDir,
             CreDir = string.IsNullOrWhiteSpace(CreDir) ? null : CreDir,
             ConfigPath = string.IsNullOrWhiteSpace(ConfigPath) ? null : ConfigPath,
@@ -654,7 +663,40 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsProgressIndeterminate = false;
             ProgressMax = Math.Max(1, p.Total);
             ProgressValue = p.Done;
-            StatusText = $"{p.Done}/{p.Total} (ok {p.Generated + p.Reused}, failed {p.Failed})";
+            var baseText = $"{p.Done}/{p.Total} (ok {p.Generated + p.Reused}, failed {p.Failed})";
+
+            if (p.RemainingTime.HasValue)
+            {
+                var time = p.RemainingTime.Value;
+                string timeStr;
+
+                if (time.TotalDays >= 1)
+                {
+                    // Format: 2d 14h 35m
+                    timeStr = $"{(int)time.TotalDays}d {time.Hours}h {time.Minutes}m";
+                }
+                else if (time.TotalHours >= 1)
+                {
+                    // Format: 5h 23m 10s
+                    timeStr = $"{time.Hours}h {time.Minutes}m {time.Seconds}s";
+                }
+                else if (time.TotalMinutes >= 1)
+                {
+                    // Format: 12m 04s
+                    timeStr = $"{time.Minutes}m {time.Seconds:D2}s";
+                }
+                else
+                {
+                    // Format: 45s
+                    timeStr = $"{time.Seconds}s";
+                }
+
+                StatusText = $"{baseText} — Remaining: {timeStr}";
+            }
+            else
+            {
+                StatusText = baseText;
+            }
         });
 
         try

@@ -57,4 +57,14 @@ public static class TlkEncodings
             _ => Encoding.GetEncoding(name)
         };
     }
+
+    /// <summary>
+    /// Returns a list of all available encodings on the current platform, registering codepage support first if needed.
+    /// </summary>
+    /// <returns>List of encodings</returns>
+    public static EncodingInfo[]? GetAvailableEncodings()
+    {
+        EnsureCodePagesRegistered();
+        return Encoding.GetEncodings();
+    }
 }

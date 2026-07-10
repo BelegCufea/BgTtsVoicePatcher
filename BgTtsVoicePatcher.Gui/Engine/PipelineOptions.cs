@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 
 namespace BgTtsVoicePatcher.Gui.Engine;
 
@@ -43,7 +44,7 @@ public sealed class PipelineOptions
     public int Limit { get; init; } = int.MaxValue;
     public bool DryRun { get; init; }
 
-    public string Encoding { get; init; } = "utf-8";
+    public Encoding Encoding { get; init; } = Encoding.UTF8;
     public int MinLength { get; init; } = 2;
 
     /// <summary>Skip the 'speakers' step even if speaker-strrefs.json /
@@ -67,6 +68,6 @@ public sealed class PipelineOptions
     public string EffectiveDlgDir => string.IsNullOrWhiteSpace(DlgDir) ? OverrideDir : DlgDir;
 }
 
-public sealed record PipelineProgress(int Done, int Total, int Generated, int Reused, int Failed);
+public sealed record PipelineProgress(int Done, int Total, int Generated, int Reused, int Failed, TimeSpan? RemainingTime = null);
 
 public sealed record PipelineResult(bool Success, int Generated, int Reused, int Failed, string Message);

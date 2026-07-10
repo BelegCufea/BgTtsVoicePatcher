@@ -65,7 +65,7 @@ public sealed class PipelineRunner
             return Fail(log, $"dialog.tlk not found: '{options.TlkPath}'.");
 
         var config = PatcherConfig.Load(options.ConfigPath);
-        var encoding = TlkEncodings.Resolve(options.Encoding);
+        var encoding = options.Encoding;
         var cleaner = new DialogTextCleaner(config);
 
         log.Report($"Game directory : {options.GameDir}");
@@ -214,6 +214,7 @@ public sealed class PipelineRunner
         var generated = 0;
         var reused = 0;
         var failed = 0;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         for (var i = 0; i < candidates.Count; i++)
         {
@@ -273,11 +274,27 @@ public sealed class PipelineRunner
                 }
             }
 
-            progress.Report(new PipelineProgress(i + 1, candidates.Count, generated, reused, failed));
+            var completedCount = i + 1;
+            var remainingCount = candidates.Count - completedCount;
+
+            TimeSpan remainingTime;
+            if (completedCount > 0 && remainingCount > 0)
+            {
+                double msPerItem = sw.Elapsed.TotalMilliseconds / completedCount;
+                remainingTime = TimeSpan.FromMilliseconds(msPerItem * remainingCount);
+            }
+            else
+            {
+                remainingTime = TimeSpan.Zero;
+            }
+
+            progress.Report(new PipelineProgress(completedCount, candidates.Count, generated, reused, failed, remainingTime));
 
             if (!options.DryRun && (i % 25 == 0 || i == candidates.Count - 1))
                 manifest?.Save();
         }
+
+        sw.Stop();
 
         if (options.DryRun)
         {
@@ -405,7 +422,7 @@ public sealed class PipelineRunner
                 throw new FileNotFoundException($"dialog.tlk not found: '{options.TlkPath}'");
 
             var config = PatcherConfig.Load(options.ConfigPath);
-            var encoding = TlkEncodings.Resolve(options.Encoding);
+            var encoding = options.Encoding;
             var cleaner = new DialogTextCleaner(config);
             RunSpeakersStep(options, config, encoding, cleaner, log, ct);
         }, ct);
@@ -423,7 +440,7 @@ public sealed class PipelineRunner
                 throw new FileNotFoundException($"dialog.tlk not found: '{options.TlkPath}'");
 
             var config = PatcherConfig.Load(options.ConfigPath);
-            var encoding = TlkEncodings.Resolve(options.Encoding);
+            var encoding = options.Encoding;
             var cleaner = new DialogTextCleaner(config);
             var textOverrides = TextOverrides.Load(options.TextOverridesPath);
             return BuildSpeakerReviewRowsInternal(options, config, encoding, cleaner, textOverrides, log);
@@ -443,7 +460,7 @@ public sealed class PipelineRunner
 
         var hasSpeakerFile = fileSpeakerMap.Count > 0;
         var needCreLookup = !string.IsNullOrWhiteSpace(options.CreDir);
-        var needDlgScan = !hasSpeakerFile || needCreLookup;
+        var needDlgScan = !hasSpeakerFile;
 
         var liveSpeakerMap = new Dictionary<int, string>();
         CreGenderLookup? liveCreLookup = null;

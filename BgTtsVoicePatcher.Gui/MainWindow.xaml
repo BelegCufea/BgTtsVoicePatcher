@@ -56,8 +56,8 @@
         <!-- ===================== Wizard tabs ===================== -->
         <TabControl Grid.Row="0" SelectedIndex="{Binding CurrentStepIndex}" Margin="0,0,0,8">
 
-            <!-- Step 1: Game and TLK -->
-            <TabItem Header="1. Game &amp; TLK">
+            <!-- Step 1: Game, TLK, DLG and CRE -->
+            <TabItem Header="1. Directories">
                 <StackPanel Margin="10">
                     <GroupBox Header="Game directory">
                         <Grid>
@@ -92,13 +92,8 @@
                                        Text="Scans '&lt;game-dir&gt;\lang\*\dialog.tlk' automatically after you pick a game directory. If your install uses a non-standard layout, use Browse manually." />
                         </StackPanel>
                     </GroupBox>
-                </StackPanel>
-            </TabItem>
 
-            <!-- Step 2: DLG / CRE -->
-            <TabItem Header="2. DLG / CRE Folders">
-                <StackPanel Margin="10">
-                    <GroupBox Header="Speaker / gender resolution (recommended: Near Infinity mass-export)">
+                                        <GroupBox Header="Speaker / gender resolution (recommended: Near Infinity mass-export)">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="120" />
@@ -125,11 +120,27 @@
                                        Text="Tip: In Near Infinity, press Ctrl+M (Tools -&gt; Mass Export), select DLG (and separately CRE), uncheck 'Decompile scripts and dialogs', and export each to its own folder." />
                         </Grid>
                     </GroupBox>
+
+                    <GroupBox Header="Encoding">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Label Grid.Column="0" Content="Encoding" />
+                            <ComboBox Grid.Column="1"
+                                      ItemsSource="{Binding AvailableEncodings}"
+                                      SelectedItem="{Binding SelectedEncoding}"
+                                      DisplayMemberPath="DisplayName">
+                            </ComboBox>
+                        </Grid>
+                    </GroupBox>
                 </StackPanel>
             </TabItem>
 
-            <!-- Step 3: Config -->
-            <TabItem Header="3. Config">
+            <!-- Step 2: Config -->
+            <TabItem Header="2. Config">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10">
                         <GroupBox Header="patcher-config.json">
@@ -232,51 +243,8 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- Step 4: Voices and Speakers -->
-            <TabItem Header="4. Voices &amp; Speakers">
-                <StackPanel Margin="10">
-                    <GroupBox Header="Voices">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-
-                            <Label Grid.Row="0" Grid.Column="0" Content="Default / fallback" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
-                                      SelectedItem="{Binding SelectedVoice}"
-                                      ToolTip="Used when gender can't be resolved for a line." />
-                            <Button Grid.Row="0" Grid.Column="2" Content="Refresh voices" Command="{Binding RefreshVoicesCommand}" />
-
-                            <Label Grid.Row="1" Grid.Column="0" Content="Male voice" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
-                                      SelectedItem="{Binding SelectedMaleVoice}" />
-
-                            <Label Grid.Row="2" Grid.Column="0" Content="Female voice" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
-                                      SelectedItem="{Binding SelectedFemaleVoice}" />
-                        </Grid>
-                    </GroupBox>
-
-                    <GroupBox Header="Speaker resolution">
-                        <StackPanel>
-                            <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
-                                       Text="Scans your DLG folder (and CRE folder, if set) to figure out which NPC speaks each line and their gender, writing speaker-strrefs.json and speaker-names.json beside dialog.tlk. Safe to re-run - it only adds new names, never overwrites ones you've already reviewed." />
-                            <Button Content="Run Speakers" Command="{Binding RunSpeakersCommand}" HorizontalAlignment="Left"
-                                    Background="#2E7D32" Foreground="White" FontWeight="Bold" Padding="14,6" />
-                        </StackPanel>
-                    </GroupBox>
-                </StackPanel>
-            </TabItem>
-
-            <!-- Step 5: Speaker Review -->
-            <TabItem Header="5. Speaker Review">
+            <!-- Step 3: Speaker Review -->
+            <TabItem Header="3. Speaker Review">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -284,17 +252,27 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
+                    <StackPanel Grid.Row="0" Orientation="Vertical" Margin="0,0,0,6">
+                        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
                                Text="Filter each column independently, like Excel. Edit Gender or Cleaned Text and click Save Changes - gender corrections go to speaker-names.json, text edits go to text-overrides.json and are used verbatim (no re-cleaning) the next time you Run." />
+                        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
+                               Text="Find Speakers scans your DLG folder (and CRE folder, if set) to figure out which NPC speaks each line and their gender, writing speaker-strrefs.json and speaker-names.json beside dialog.tlk. Safe to re-run - it only adds new names, never overwrites ones you've already reviewed. You should run it after any mod changes." />
+                        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
+                               Text="You can use Reload to use the generated speaker-names.json for gender and NPC names instead of scanning the DLG and CRE files again." />
+                    </StackPanel>
 
                     <Grid Grid.Row="1" Margin="0,0,0,6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
-                            <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}" />
+                            <Button Content="Find Speakers" Command="{Binding RunSpeakersCommand}"
+                                    Background="#2E7D32" Foreground="White" />
                             <Button Content="Reload" Command="{Binding ReloadSpeakerReviewCommand}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}" />
                             <Button Content="Save Changes" Command="{Binding SaveSpeakerChangesCommand}"
                                     Background="#1565C0" Foreground="White" />
                         </StackPanel>
@@ -418,9 +396,39 @@
                 </Grid>
             </TabItem>
 
-            <!-- Step 6: Sound Options -->
-            <TabItem Header="6. Sound Options">
+            <!-- Step 4: Sound Options -->
+            <TabItem Header="4. Voices and Sound Options">
                 <StackPanel Margin="10">
+                    <GroupBox Header="Voices">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <Label Grid.Row="0" Grid.Column="0" Content="Default / fallback" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
+                                      SelectedItem="{Binding SelectedVoice}"
+                                      ToolTip="Used when gender can't be resolved for a line." />
+                            <Button Grid.Row="0" Grid.Column="2" Content="Refresh voices" Command="{Binding RefreshVoicesCommand}" />
+
+                            <Label Grid.Row="1" Grid.Column="0" Content="Male voice" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
+                                      SelectedItem="{Binding SelectedMaleVoice}" />
+
+                            <Label Grid.Row="2" Grid.Column="0" Content="Female voice" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
+                                      SelectedItem="{Binding SelectedFemaleVoice}" />
+                        </Grid>
+                    </GroupBox>
+
+
                     <GroupBox Header="Output options">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -468,8 +476,8 @@
                 </StackPanel>
             </TabItem>
 
-            <!-- Step 7: Run -->
-            <TabItem Header="7. Run">
+            <!-- Step 5: Run -->
+            <TabItem Header="5. Run">
                 <StackPanel Margin="10">
                     <GroupBox Header="Testing">
                         <Grid>
@@ -493,7 +501,7 @@
                     </GroupBox>
 
                     <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,4,4,0"
-                               Text="Click Run (bottom right) to generate audio for every unvoiced, speaker-known line and patch dialog.tlk, then write dialog-report.csv. If you skipped Step 4, this will fall back to a live DLG/CRE scan automatically." />
+                               Text="Click Run (bottom right) to generate audio for every unvoiced, speaker-known line and patch dialog.tlk, then write dialog-report.csv. If you skipped finding speakers in step 3, this will fall back to a live DLG/CRE scan automatically." />
                 </StackPanel>
             </TabItem>
 
