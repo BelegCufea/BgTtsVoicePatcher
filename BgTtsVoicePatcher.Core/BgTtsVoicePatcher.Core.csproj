@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!--
+      No <OutputType> here - defaults to Library, which is what we want. This
+      project has no Main and is never run directly; it's referenced by both
+      BgTtsVoicePatcher (console) and BgTtsVoicePatcher.Gui (WPF).
+
+      Stays net10.0-windows (not plain net10.0) because Speech/VoiceSynthesizer.cs
+      wraps System.Speech, which is Windows-only (SAPI via COM) - keeping every
+      class on one Windows-specific TFM is simpler than splitting further, since
+      this whole project is Windows-only in practice anyway.
+    -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Speech synthesis (Windows SAPI). Consuming projects (console, GUI) get
+         this transitively via ProjectReference - they do not need to declare
+         it themselves. -->
+    <PackageReference Include="System.Speech" Version="10.0.9" />
+    <!-- Codepage support for dialog.tlk text (windows-1252, windows-1250, etc).
+         Despite an earlier NU1510 "package will not be pruned" build warning that
+         looked like it meant this was unnecessary on .NET 10, that warning only
+         means the assembly itself overlaps with the shared framework - it does NOT
+         mean CodePagesEncodingProvider gets registered automatically. Encoding.
+         GetEncoding(1252)/1250 genuinely throws NotSupportedException without an
+         explicit Encoding.RegisterProvider(CodePagesEncodingProvider.Instance)
+         call first (see Text/TlkEncodings.cs, which centralizes that call so every
+         entry point gets it exactly once). -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The canonical patcher-config.json lives here, since this is the project
+      that owns PatcherConfig.Load() and defines what "default location" means.
+      Each consuming exe project (console, GUI) links this same file in via a
+      relative <None Include> + CopyToOutputDirectory in its own .csproj, so it
+      ends up next to whichever executable is actually built/published - a
+      referenced class library's own CopyToOutputDirectory items are not
+      guaranteed to flow through PublishSingleFile in every case, so we do this
+      explicitly rather than relying on transitive content propagation.
+    -->
+    <None Include="patcher-config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,50 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- System.Speech wraps Windows SAPI via COM, so this only runs on Windows. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>BgTtsVoicePatcher</RootNamespace>
+	<VersionPrefix>0.0.1</VersionPrefix>
+	<VersionSuffix>beta</VersionSuffix>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <Version>$(VersionPrefix)-$(VersionSuffix)</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- All engine classes (Tlk, Speech, Cre, Config, etc.) now live in the shared
+         BgTtsVoicePatcher.Core library, referenced here and by the GUI project.
+         System.Speech itself is only declared in Core's .csproj - it flows to this
+         project transitively through the ProjectReference, no separate
+         PackageReference needed here. -->
+    <ProjectReference Include="..\BgTtsVoicePatcher.Core\BgTtsVoicePatcher.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      LICENSE.txt and README.md live at the solution root (their natural home for
+      a GitHub repo, where README.md renders automatically). Linked in here via
+      relative path so a copy lands next to this executable when built/published.
+      (Previously these were <None Update> entries with no matching file in this
+      project's own directory, so they were silent no-ops - this fixes that.)
+    -->
+    <None Include="..\README.md" Link="README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\LICENSE.txt" Link="LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!--
+      patcher-config.json's canonical copy now lives in BgTtsVoicePatcher.Core
+      (see that project's .csproj for why). Linked in explicitly here so it still
+      ends up next to this executable - PatcherConfig.Load() looks for it in
+      AppContext.BaseDirectory, i.e. next to whichever .exe is actually running.
+    -->
+    <None Include="..\BgTtsVoicePatcher.Core\patcher-config.json" Link="patcher-config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

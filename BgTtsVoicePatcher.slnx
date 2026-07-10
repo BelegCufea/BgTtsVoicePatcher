@@ -1,3 +1,5 @@
 <Solution>
-  <Project Path="BgTtsVoicePatcher.csproj" />
+  <Project Path="BgTtsVoicePatcher.Core\BgTtsVoicePatcher.Core.csproj" />
+  <Project Path="BgTtsVoicePatcher\BgTtsVoicePatcher.csproj" />
+  <Project Path="BgTtsVoicePatcher.Gui\BgTtsVoicePatcher.Gui.csproj" />
 </Solution>

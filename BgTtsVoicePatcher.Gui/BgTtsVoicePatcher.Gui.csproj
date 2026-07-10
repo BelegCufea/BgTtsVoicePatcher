@@ -1,0 +1,43 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>BgTtsVoicePatcher.Gui</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- All engine classes (Tlk, Speech, Cre, Config, etc.) live in the shared
+         BgTtsVoicePatcher.Core library. System.Speech itself is only declared in
+         Core's .csproj and flows to this project transitively - no separate
+         PackageReference needed here. -->
+    <ProjectReference Include="..\BgTtsVoicePatcher.Core\BgTtsVoicePatcher.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      LICENSE.txt and README.md live at the solution root. Linked in here via
+      relative path so a copy lands next to this executable when built/published.
+    -->
+    <None Include="..\README.md" Link="README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\LICENSE.txt" Link="LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!--
+      patcher-config.json's canonical copy lives in BgTtsVoicePatcher.Core.
+      Linked in explicitly here so it ends up next to this executable too -
+      PatcherConfig.Load() looks for it in AppContext.BaseDirectory, i.e. next
+      to whichever .exe is actually running (console or GUI).
+    -->
+    <None Include="..\BgTtsVoicePatcher.Core\patcher-config.json" Link="patcher-config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -261,7 +261,7 @@ Other sections:
 | `--game-dir` | — | Game root. Derives TLK as `<game-dir>\lang\<lang>\dialog.tlk`. |
 | `--lang` | `en_US` | Language subfolder, used with `--game-dir`. |
 | `--manifest` | `tts-manifest.json` next to TLK | Resumability/audit log. |
-| `--encoding` | `windows-1252` | TLK text encoding. Use `windows-1250` for Czech fan-translated TLKs. |
+| `--encoding` | `utf-8` | TLK text encoding. Use `windows-1250` for Czech fan-translated TLKs. |
 | `--dlg-dir` | `--override` | Directory of `.dlg` files (Near Infinity mass-export recommended). |
 | `--cre-dir` | none | Directory of `.CRE` files (Near Infinity mass-export). Enables gender from Sex byte. |
 | `--speaker-map` | none | `speaker-strrefs.json` from `speakers`. When provided in `generate`/`report`, the DLG scan is skipped. |
