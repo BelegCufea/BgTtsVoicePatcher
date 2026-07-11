@@ -80,6 +80,8 @@
   ],
 
   "phoneticRules": [
+    { "pattern": "\\^0x[0-9A-Fa-f]{6,8}", "replacement": "", "comment": "strip NPC Color mod code" },
+    { "pattern": "\\^-", "replacement": "", "comment": "strip NPC Color mod code" },
     {
       "pattern": "—",
       "replacement": "...",

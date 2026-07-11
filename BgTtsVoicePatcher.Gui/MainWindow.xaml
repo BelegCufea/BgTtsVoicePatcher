@@ -43,6 +43,18 @@
             <Setter Property="CanUserDeleteRows" Value="True" />
             <Setter Property="RowHeaderWidth" Value="0" />
         </Style>
+        <Style TargetType="DataGridCell">
+            <Style.Triggers>
+                <Trigger Property="IsReadOnly" Value="True">
+                    <Setter Property="Background" Value="#F5F5F5"/>
+                    <Setter Property="Foreground" Value="#777777"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
     </Window.Resources>
 
     <Grid Margin="10">
@@ -92,8 +104,18 @@
                                        Text="Scans '&lt;game-dir&gt;\lang\*\dialog.tlk' automatically after you pick a game directory. If your install uses a non-standard layout, use Browse manually." />
                         </StackPanel>
                     </GroupBox>
+                    <GroupBox Header="Reinstall / Uninstall" Visibility="{Binding IsManifestPresent, Converter={StaticResource BoolToVis}}">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
+                                       Text="A previous run's manifest was found beside this dialog.tlk. Reinstall re-applies its SoundResRef entries (e.g. after a game patch overwrote dialog.tlk) without re-synthesizing audio. Uninstall removes them, restoring dialog.tlk to its unpatched state. Neither deletes your generated .wav/.ogg files." />
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Reinstall" Command="{Binding RepatchCommand}" Background="#2E7D32" Foreground="White" />
+                                <Button Content="Uninstall" Command="{Binding UnpatchCommand}" Background="#C62828" Foreground="White" />
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
 
-                                        <GroupBox Header="Speaker / gender resolution (recommended: Near Infinity mass-export)">
+                    <GroupBox Header="Speaker / gender resolution (recommended: Near Infinity mass-export)">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="120" />
@@ -252,30 +274,104 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Orientation="Vertical" Margin="0,0,0,6">
-                        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
-                               Text="Filter each column independently, like Excel. Edit Gender or Cleaned Text and click Save Changes - gender corrections go to speaker-names.json, text edits go to text-overrides.json and are used verbatim (no re-cleaning) the next time you Run." />
-                        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
-                               Text="Find Speakers scans your DLG folder (and CRE folder, if set) to figure out which NPC speaks each line and their gender, writing speaker-strrefs.json and speaker-names.json beside dialog.tlk. Safe to re-run - it only adds new names, never overwrites ones you've already reviewed. You should run it after any mod changes." />
-                        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,0,4,6"
-                               Text="You can use Reload to use the generated speaker-names.json for gender and NPC names instead of scanning the DLG and CRE files again." />
-                    </StackPanel>
+                    <Expander Grid.Row="0" Margin="0,0,0,10" IsExpanded="False" Background="#F9F9F9" BorderBrush="#E0E0E0">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal" Margin="4,2">
+                                <TextBlock Text="💡" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                <TextBlock Text="Need Help? Click here to view tips on reviewing speakers, json storage rules, and audio playback requirements."
+                                           FontWeight="SemiBold" Foreground="#1565C0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Expander.Header>
 
-                    <Grid Grid.Row="1" Margin="0,0,0,6">
+                        <StackPanel Margin="24,12,12,12">
+                            <Border Background="#EFFFFA" BorderBrush="#34A853" BorderThickness="4,0,0,0" Padding="10,6" Margin="0,0,0,12">
+                                <TextBlock TextWrapping="Wrap" LineHeight="18">
+                                    <Bold Foreground="#2E7D32">🎵 Audio Playback Requirements:</Bold><LineBreak/>
+                                    • Only <Span Foreground="#C62828" FontWeight="SemiBold">modded/custom audio files</Span> located inside your <Italic>&lt;GameDir&gt;\override</Italic> subdirectory can be audited directly from this table.<LineBreak/>
+                                    • Playback relies on <Bold>ffmpeg/ffplay</Bold>. If the ffmpeg is not on standard path, use <Italic>ffmpeg path</Italic> in the <Bold>Step 4. Voices and Sound Options</Bold> for the full path.
+                                </TextBlock>
+                            </Border>
+
+                            <TextBlock TextWrapping="Wrap" LineHeight="18" Foreground="#333333" Margin="0,0,0,12">
+                                <Bold Foreground="#1565C0">⚙️ Command Bar Actions &amp; File Formats:</Bold><LineBreak/>
+                                • <Bold>Find Speakers:</Bold> Scans your DLG folder (and CRE folder, if set) to figure out which NPC speaks each line and their gender. It writes <Italic>speaker-strrefs.json</Italic> and <Italic>speaker-names.json</Italic> beside your <Italic>dialog.tlk</Italic>. This is completely <Bold>safe to re-run</Bold>—it only appends new names and will never overwrite ones you have already reviewed. Run this again after adding or changing mods.<LineBreak/>
+                                • <Bold>Reload:</Bold> Uses the generated <Italic>speaker-names.json</Italic> directly for gender data and NPC assignments instead of spending time re-scanning the heavy DLG and CRE files from scratch.<LineBreak/>
+                                • <Bold>Save Changes:</Bold> Commits your grid modifications to disk. Gender corrections are saved directly to <Italic>speaker-names.json</Italic>, while text modifications go to <Italic>text-overrides.json</Italic> and are used <Bold>verbatim (with no re-cleaning)</Bold> the next time you trigger a Run.
+                            </TextBlock>
+
+                            <TextBlock TextWrapping="Wrap" LineHeight="18" Foreground="#333333">
+                                <Bold Foreground="#1565C0">📋 Grid Layout &amp; Filtering Hints:</Bold><LineBreak/>
+                                • <Bold>Column Filters:</Bold> Every column can be filtered completely independently.<LineBreak/>
+                                • <Bold>Selections:</Bold> Click the checkboxes in the first column to pick target records, or use <Italic>Select Filtered</Italic> to mass-select thousands of filtered matching lines instantly for bulk automation actions. In <Bold>Step 5. Run</Bold> you can use <Italic>Only generate the rows checked in Speaker Review</Italic> option to (re)generate only the selected lines instead of the all available ones.<LineBreak/>
+                                • <Bold>System/In-game Name Filters:</Bold> The column header filter contains a specialized three-state cycle checkbox. Click it to cycle:
+                                  <Run Background="#EEEEEE"> Dash ➖ (Show All) </Run> →
+                                  <Run Background="#EEEEEE"> Checked ☑️ (Only Non-Empty Rows) </Run> →
+                                  <Run Background="#EEEEEE"> Unchecked ⬛ (Only Empty Rows) </Run>.<LineBreak/>
+                                • <Bold>Original Text:</Bold> Read-only reference displaying the raw string data straight out of the game's original dialogue database.<LineBreak/>
+                                • <Bold>Cleaned / Spoken Text:</Bold> This field is fully editable. Use it to fine-tune grammar, fix typos, modify syntax, or insert phonetic spellings/hints to achieve high-quality TTS voice generation output.<LineBreak/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Expander>
+
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" /> <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal">
-                            <Button Content="Find Speakers" Command="{Binding RunSpeakersCommand}"
-                                    Background="#2E7D32" Foreground="White" />
-                            <Button Content="Reload" Command="{Binding ReloadSpeakerReviewCommand}" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}" />
-                            <Button Content="Save Changes" Command="{Binding SaveSpeakerChangesCommand}"
-                                    Background="#1565C0" Foreground="White" />
-                        </StackPanel>
+
+                        <Grid.Resources>
+                            <Style x:Key="CommandGroupBorder" TargetType="Border">
+                                <Setter Property="BorderBrush" Value="#D0D0D0" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="Background" Value="#FBFBFB" />
+                                <Setter Property="CornerRadius" Value="3" />
+                                <Setter Property="Padding" Value="6,4" />
+                                <Setter Property="Margin" Value="0,0,8,0" />
+                                <Setter Property="VerticalAlignment" Value="Stretch" />
+                            </Style>
+                        </Grid.Resources>
+
+                        <Border Grid.Column="0" Style="{StaticResource CommandGroupBorder}">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,0,15">
+                                <Button Content="Find Speakers" Command="{Binding RunSpeakersCommand}"
+                                        Background="#2E7D32" Foreground="White" />
+                                <Button Content="Reload" Command="{Binding ReloadSpeakerReviewCommand}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Style="{StaticResource CommandGroupBorder}">
+                            <StackPanel Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Center">
+                                <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}" HorizontalAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,0">
+                                    <TextBlock Text="Showing " Foreground="#666666" FontSize="11"/>
+                                    <TextBlock Text="{Binding SpeakerRowsView.Count}" FontWeight="Bold" Foreground="#222222" FontSize="11"/>
+                                    <TextBlock Text=" matching" Foreground="#666666" FontSize="11"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2" Style="{StaticResource CommandGroupBorder}">
+                            <StackPanel Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Select Filtered" Command="{Binding SelectFilteredCommand}"
+                                            ToolTip="Adds every row currently passing the filters to the selection." />
+                                    <Button Content="Clear Selection" Command="{Binding ClearSelectionCommand}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,2,0,0">
+                                    <TextBlock Text="{Binding SelectedStrRefCount}" FontWeight="Bold" Foreground="#222222" FontSize="11"/>
+                                    <TextBlock Text=" rows selected" Foreground="#666666" FontSize="11"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="4" Style="{StaticResource CommandGroupBorder}" Margin="0">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,0,15">
+                                <Button Content="Save Changes" Command="{Binding SaveSpeakerChangesCommand}"
+                                        Background="#1565C0" Foreground="White" />
+                            </StackPanel>
+                        </Border>
                     </Grid>
 
                     <DataGrid Grid.Row="2" ItemsSource="{Binding SpeakerRowsView}"
@@ -284,7 +380,15 @@
                               VirtualizingPanel.IsVirtualizing="True"
                               VirtualizingPanel.VirtualizationMode="Recycling">
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="StrRef" Width="70">
+                            <DataGridTemplateColumn Header="✓" Width="30">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="StrRef" Width="70" IsReadOnly="True">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <StackPanel>
@@ -300,11 +404,19 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTemplateColumn Header="System name" Width="120">
+                            <DataGridTemplateColumn Header="System name" Width="120" IsReadOnly="True">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <StackPanel>
-                                            <TextBlock Text="System name" FontWeight="Bold" />
+                                            <DockPanel LastChildFill="False">
+                                                <TextBlock Text="System name" FontWeight="Bold" DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                                <CheckBox IsThreeState="True"
+                                                    ToolTip="Click to cycle: Dash (Show All) -> Checked (Only Non-Empty) -> Unchecked (Only Empty)"
+                                                    IsChecked="{Binding DataContext.FilterSystemNameState, RelativeSource={RelativeSource AncestorType=DataGrid}, Mode=TwoWay}"
+                                                    DockPanel.Dock="Right"
+                                                    VerticalAlignment="Center"
+                                                    Margin="5,0,0,0"/>
+                                            </DockPanel>
                                             <TextBox Text="{Binding DataContext.FilterSystemName, RelativeSource={RelativeSource AncestorType=DataGrid}, UpdateSourceTrigger=PropertyChanged}" />
                                         </StackPanel>
                                     </DataTemplate>
@@ -316,11 +428,19 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTemplateColumn Header="In-game name" Width="140">
+                            <DataGridTemplateColumn Header="In-game name" Width="140" IsReadOnly="True">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <StackPanel>
-                                            <TextBlock Text="In-game name" FontWeight="Bold" />
+                                            <DockPanel LastChildFill="False">
+                                                <TextBlock Text="In-game name" FontWeight="Bold" />
+                                                <CheckBox IsThreeState="True"
+                                                    ToolTip="Click to cycle: Dash (Show All) -> Checked (Only Non-Empty) -> Unchecked (Only Empty)"
+                                                    IsChecked="{Binding DataContext.FilterRealNameState, RelativeSource={RelativeSource AncestorType=DataGrid}, Mode=TwoWay}"
+                                                    DockPanel.Dock="Right"
+                                                    VerticalAlignment="Center"
+                                                    Margin="5,0,0,0"/>
+                                            </DockPanel>
                                             <TextBox Text="{Binding DataContext.FilterRealName, RelativeSource={RelativeSource AncestorType=DataGrid}, UpdateSourceTrigger=PropertyChanged}" />
                                         </StackPanel>
                                     </DataTemplate>
@@ -350,7 +470,7 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTemplateColumn Header="Voiced" Width="80">
+                            <DataGridTemplateColumn Header="Voiced" Width="80" IsReadOnly="True">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <StackPanel>
@@ -368,12 +488,39 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTextColumn Header="SoundResRef" Binding="{Binding SoundResRef}" Width="100" IsReadOnly="True" />
-
+                            <DataGridTemplateColumn Header="SoundResRef" Width="100" IsReadOnly="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding SoundResRef}"
+                                                Command="{Binding DataContext.PlaySoundCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding SoundResRef}"
+                                                ToolTip="Click to listen to this audio file"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Foreground="#0066CC"
+                                                Cursor="Hand"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center"
+                                                Margin="4,0">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="TextBlock.TextDecorations" Value="Underline"/>
+                                                            <Setter Property="Foreground" Value="#003399"/>
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridCheckBoxColumn Header="Override" Binding="{Binding IsTextOverridden, Mode=OneWay}" Width="60" IsReadOnly="True"
                                                      ToolTipService.ToolTip="Checked if this line already has a saved hand-edited text override." />
 
-                            <DataGridTemplateColumn Header="Original text" Width="*">
+                            <DataGridTemplateColumn Header="Original text" Width="*" IsReadOnly="True">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <StackPanel>
@@ -390,7 +537,26 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTextColumn Header="Cleaned / spoken text (editable)" Binding="{Binding CleanedText, UpdateSourceTrigger=PropertyChanged}" Width="*" IsReadOnly="False" />
+                            <DataGridTemplateColumn Header="Cleaned / spoken text (editable)" Width="*" IsReadOnly="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding CleanedText, Mode=OneWay}"
+                                                   Margin="4,2"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding CleanedText, UpdateSourceTrigger=PropertyChanged}"
+                                                 TextWrapping="Wrap"
+                                                 AcceptsReturn="False"
+                                                 VerticalContentAlignment="Top"
+                                                 Margin="0" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -499,6 +665,9 @@
                                       IsChecked="{Binding DryRun}" />
                         </Grid>
                     </GroupBox>
+
+                    <CheckBox Content="Only generate the rows checked in Speaker Review" IsChecked="{Binding GenerateSelectedOnly}" />
+                    <TextBlock Text="{Binding SelectedStrRefCount, StringFormat='({0} line(s) currently selected)'}" Foreground="Gray" Margin="20,0,0,4" />
 
                     <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="4,4,4,0"
                                Text="Click Run (bottom right) to generate audio for every unvoiced, speaker-known line and patch dialog.tlk, then write dialog-report.csv. If you skipped finding speakers in step 3, this will fall back to a live DLG/CRE scan automatically." />

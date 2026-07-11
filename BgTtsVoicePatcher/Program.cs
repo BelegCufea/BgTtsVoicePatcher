@@ -257,7 +257,7 @@ internal static class Program
                 }
             }
 
-            if (realName is not null && systemName is not null && realName.Equals(systemName, StringComparison.OrdinalIgnoreCase))
+            if (realName is not null && systemName is not null && realName.Equals(systemName, StringComparison.Ordinal))
                 realName = null;
 
             var soundResRef = entry.HasSound ? entry.SoundResRef : null;

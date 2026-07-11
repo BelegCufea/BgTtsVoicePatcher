@@ -54,6 +54,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         set
         {
             Set(ref _selectedTlkPath, value);
+            IsManifestPresent = !string.IsNullOrWhiteSpace(value) && File.Exists(BuildOptions().ManifestPath);
             RunCommand.RaiseCanExecuteChanged();
             RunSpeakersCommand.RaiseCanExecuteChanged();
             if (!string.IsNullOrWhiteSpace(value))
@@ -63,9 +64,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public EncodingInfo[]? AvailableEncodings { get; } = TlkEncodings.GetAvailableEncodings();
 
-    public EncodingInfo? SelectedEncoding { get; set; } =
+    private EncodingInfo? _encodingInfo =
         TlkEncodings.GetAvailableEncodings()!
             .First(e => e.CodePage == Encoding.UTF8.CodePage);
+
+    public EncodingInfo? SelectedEncoding { get => _encodingInfo; set => Set(ref _encodingInfo, value); }
 
     public RelayCommand BrowseGameDirCommand { get; }
     public RelayCommand ScanForTlkCommand { get; }
@@ -334,8 +337,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _filterSystemName = "";
     public string FilterSystemName { get => _filterSystemName; set { Set(ref _filterSystemName, value); SpeakerRowsView.Refresh(); } }
 
+    private bool? _filterSystemNameState = null;
+    public bool? FilterSystemNameState { get => _filterSystemNameState; set { Set(ref _filterSystemNameState, value); SpeakerRowsView.Refresh(); } }
+
     private string _filterRealName = "";
     public string FilterRealName { get => _filterRealName; set { Set(ref _filterRealName, value); SpeakerRowsView.Refresh(); } }
+
+    private bool? _filterRealNameState = null;
+    public bool? FilterRealNameState { get => _filterRealNameState; set { Set(ref _filterRealNameState, value); SpeakerRowsView.Refresh(); } }
 
     private string _filterGender = "All";
     public string FilterGender { get => _filterGender; set { Set(ref _filterGender, value); SpeakerRowsView.Refresh(); } }
@@ -356,12 +365,36 @@ public sealed class MainViewModel : INotifyPropertyChanged
         FilterGender = "All";
         FilterVoiced = "All";
         FilterText = "";
+        FilterSystemNameState = null;
+        FilterRealNameState = null;
     }
 
     private bool FilterSpeakerRow(object obj)
     {
         if (obj is not SpeakerRowViewModel row)
             return true;
+
+        if (FilterSystemNameState.HasValue)
+        {
+            bool hasName = !string.IsNullOrWhiteSpace(row.SystemName);
+
+            if (FilterSystemNameState.Value == true && !hasName)
+                return false; // Filter Only Non-Empty: Hide if it's empty
+
+            if (FilterSystemNameState.Value == false && hasName)
+                return false; // Filter Only Empty: Hide if it has a name
+        }
+
+        if (FilterRealNameState.HasValue)
+        {
+            bool hasName = !string.IsNullOrWhiteSpace(row.RealName);
+
+            if (FilterRealNameState.Value == true && !hasName)
+                return false; // Filter Only Non-Empty: Hide if it's empty
+
+            if (FilterRealNameState.Value == false && hasName)
+                return false; // Filter Only Empty: Hide if it has a name
+        }
 
         if (!string.IsNullOrWhiteSpace(FilterStrRef) &&
             !row.StrRef.ToString(CultureInfo.InvariantCulture).Contains(FilterStrRef.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -419,13 +452,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
             List<SpeakerReviewRow> rows = await _runner.BuildSpeakerReviewRowsAsync(options, log, ct);
 
             log.Report($"Building {rows.Count} review row(s)...");
+            var previousSelection = SpeakerRows.Where(r => r.IsSelected).Select(r => r.StrRef).ToHashSet();
             var speakerRows = await Task.Run(() => rows
                 .Select(r => new SpeakerRowViewModel(
                     r.StrRef, r.SystemName, r.RealName, r.Gender, r.HasSound, r.SoundResRef,
                     r.RawText, r.CleanedText, r.IsTextOverridden))
                 .ToList(), ct);
 
+            foreach (var row in speakerRows)
+                if (previousSelection.Contains(row.StrRef))
+                    row.IsSelected = true;
+
             SpeakerRows.ReplaceAll(speakerRows);
+
+            foreach (var row in speakerRows)
+                row.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(SpeakerRowViewModel.IsSelected)) RecomputeSelectedCount(); };
+
+
+            RecomputeSelectedCount();
+
             log.Report($"Loaded {rows.Count} row(s) into the review grid.");
         }, "Speaker review loaded.");
     }
@@ -521,7 +566,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // ==================================================================
 
     private int _currentStepIndex;
-    public int CurrentStepIndex { get => _currentStepIndex; set => Set(ref _currentStepIndex, value); }
+    public int CurrentStepIndex
+    {
+        get => _currentStepIndex;
+        set
+        {
+            Set(ref _currentStepIndex, value);
+            PreviousStepCommand.RaiseCanExecuteChanged();
+            NextStepCommand.RaiseCanExecuteChanged();
+        }
+    }
 
     public RelayCommand NextStepCommand { get; }
     public RelayCommand PreviousStepCommand { get; }
@@ -601,9 +655,82 @@ public sealed class MainViewModel : INotifyPropertyChanged
             () => !IsRunning && !string.IsNullOrWhiteSpace(SelectedTlkPath));
         CancelCommand = new RelayCommand(() => _cts?.Cancel(), () => IsRunning);
 
-        NextStepCommand = new RelayCommand(() => CurrentStepIndex = Math.Min(CurrentStepIndex + 1, StepCount - 1));
-        PreviousStepCommand = new RelayCommand(() => CurrentStepIndex = Math.Max(CurrentStepIndex - 1, 0));
+        NextStepCommand = new RelayCommand(() => CurrentStepIndex = Math.Min(CurrentStepIndex + 1, StepCount - 1),  canExecute: () => CurrentStepIndex < StepCount - 1);
+        PreviousStepCommand = new RelayCommand(() => CurrentStepIndex = Math.Max(CurrentStepIndex - 1, 0), canExecute: () => CurrentStepIndex > 0);
 
+        RepatchCommand = new RelayCommand(async () => await RunGuarded(
+            (log, _, ct) => _runner.RepatchAsync(BuildOptions(), log, ct), "Repatch complete."),
+            () => !IsRunning && IsManifestPresent);
+
+        UnpatchCommand = new RelayCommand(async () =>
+        {
+            var result = System.Windows.MessageBox.Show(
+                "This removes every SoundResRef this tool previously wrote from dialog.tlk. " +
+                "Generated .wav/.ogg files are not deleted. Continue?",
+                "Confirm Uninstall", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning);
+
+            if (result == System.Windows.MessageBoxResult.Yes)
+                await RunGuarded((log, _, ct) => _runner.UnpatchAsync(BuildOptions(), log, ct), "Uninstall complete.");
+        }, () => !IsRunning && IsManifestPresent);
+
+        SelectFilteredCommand = new RelayCommand(() =>
+        {
+            foreach (var item in SpeakerRowsView.Cast<SpeakerRowViewModel>())
+                item.IsSelected = true;
+            RecomputeSelectedCount();
+        });
+
+        ClearSelectionCommand = new RelayCommand(() =>
+        {
+            foreach (var row in SpeakerRows)
+                row.IsSelected = false;
+            RecomputeSelectedCount();
+        });
+
+        PlaySoundCommand = new RelayCommand((param) =>
+        {
+            if (param is not string soundResRef || string.IsNullOrWhiteSpace(soundResRef) || string.IsNullOrWhiteSpace(GameDir))
+                return;
+
+            try
+            {
+                string overrideDir = Path.Combine(GameDir, "override");
+                string soundFilePath = Path.Combine(overrideDir, $"{soundResRef.Trim()}.wav");
+
+                if (File.Exists(soundFilePath))
+                {
+                    // Resolve the path to ffplay.exe, which is bundled inside the same directory as ffmpeg.exe
+                    string ffplayPath = string.Equals(FfmpegPath, "ffmpeg", StringComparison.OrdinalIgnoreCase)
+                        ? "ffplay"
+                        : Path.Combine(Path.GetDirectoryName(FfmpegPath) ?? "", "ffplay.exe");
+
+                    // Launch ffplay in the background
+                    var startInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = ffplayPath,
+                        // Arguments breakdown:
+                        // -nodisp: Hides the default ffplay graphical window/waveform visualizer
+                        // -autoexit: Forces the background process to shut down immediately when the clip finishes playing
+                        // -loglevel quiet: Suppresses standard terminal text printouts to speed up execution
+                        Arguments = $"-nodisp -autoexit -loglevel quiet \"{soundFilePath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true // Completely hides the black command prompt terminal window
+                    };
+
+                    // Runs asynchronously out-of-process, ensuring your massive 200k grid never hitches or stutters
+                    System.Diagnostics.Process.Start(startInfo);
+                }
+                else
+                {
+                    // If the file is completely missing from the override folder, play a default warning sound
+                    System.Media.SystemSounds.Hand.Play();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error playing audio via ffplay: {ex.Message}");
+            }
+        });
         RefreshVoices();
     }
 
@@ -644,6 +771,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Prefix = string.IsNullOrWhiteSpace(Prefix) ? "TS" : Prefix,
             Limit = limit,
             DryRun = DryRun,
+            StrRefFilter = GenerateSelectedOnly
+                ? SpeakerRows.Where(r => r.IsSelected).Select(r => r.StrRef).ToHashSet()
+                : null,
         };
     }
 
@@ -739,6 +869,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (GenerateSelectedOnly && SpeakerRows.Count(r => r.IsSelected) == 0)
+        {
+            AppendLog("\"Only generate selected lines\" is checked, but nothing is selected in Speaker Review.");
+            return;
+        }
+
         // Speaker files were already produced by the "Run Speakers" step if the
         // user followed the wizard in order; if they jump straight here, generate
         // will fall back to a live DLG/CRE scan on its own (RunAsync handles this).
@@ -752,4 +888,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 throw new InvalidOperationException(result.Message);
         }, "Run completed.");
     }
+
+    private bool _isManifestPresent;
+    public bool IsManifestPresent { get => _isManifestPresent; private set => Set(ref _isManifestPresent, value); }
+
+    public RelayCommand RepatchCommand { get; }
+    public RelayCommand UnpatchCommand { get; }
+
+    private int _selectedStrRefCount;
+    public int SelectedStrRefCount { get => _selectedStrRefCount; private set => Set(ref _selectedStrRefCount, value); }
+
+    private bool _generateSelectedOnly;
+    public bool GenerateSelectedOnly { get => _generateSelectedOnly; set => Set(ref _generateSelectedOnly, value); }
+
+    public RelayCommand SelectFilteredCommand { get; }
+    public RelayCommand ClearSelectionCommand { get; }
+
+    private void RecomputeSelectedCount() => SelectedStrRefCount = SpeakerRows.Count(r => r.IsSelected);
+
+    public RelayCommand PlaySoundCommand { get; }
 }

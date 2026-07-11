@@ -186,9 +186,14 @@ public sealed class PipelineRunner
         var sd = ResolveSpeakerData(options, config, log);
         var textOverrides = TextOverrides.Load(options.TextOverridesPath);
 
-        var candidates = GetTtsCandidates(tlk, cleaner, options.MinLength, options.Limit,
-            requireKnownSpeaker: sd.KnownSpeakers, textOverrides: textOverrides);
-        log.Report($"{candidates.Count} unvoiced line(s) selected (limit={(options.Limit == int.MaxValue ? "none" : options.Limit.ToString())}).");
+        var candidates = options.StrRefFilter is not null
+            ? GetCandidatesForStrRefs(tlk, cleaner, options.MinLength, options.StrRefFilter, textOverrides, log)
+            : GetTtsCandidates(tlk, cleaner, options.MinLength, options.Limit,
+                requireKnownSpeaker: sd.KnownSpeakers, textOverrides: textOverrides);
+
+        log.Report(options.StrRefFilter is not null
+            ? $"{candidates.Count} line(s) selected explicitly ({options.StrRefFilter.Count} requested)."
+            : $"{candidates.Count} unvoiced line(s) selected (limit={(options.Limit == int.MaxValue ? "none" : options.Limit.ToString())}).");
 
         using var synth = new VoiceSynthesizer(options.VoiceName, options.MaleVoice, options.FemaleVoice, options.Rate, options.Volume);
         var oggEncoder = options.UseOgg ? new OggEncoder(options.FfmpegPath, options.OggQuality) : null;
@@ -196,7 +201,7 @@ public sealed class PipelineRunner
         var genderMap = GenderMap.Empty;
         VoiceManifest? manifest = null;
 
-        var manifestPath = System.IO.Path.Combine(options.LangDir, "tts-manifest.json");
+        var manifestPath = options.ManifestPath;
 
         if (!options.DryRun)
         {
@@ -229,7 +234,7 @@ public sealed class PipelineRunner
 
             try
             {
-                var existing = !options.DryRun ? manifest!.Get(entry.StrRef) : null;
+                var existing = !options.DryRun && options.StrRefFilter is null ? manifest!.Get(entry.StrRef) : null;
                 var canReuse = existing is { } e && e.TextHash == textHash && File.Exists(wavPath);
 
                 if (canReuse)
@@ -376,11 +381,7 @@ public sealed class PipelineRunner
                 }
             }
 
-            // Some NPC-color mods bake color markup directly into the name StrRef
-            // itself (e.g. "^0xFF698748Haer'Dalis^-") - strip it for display here.
-            realName = NpcNameCleaner.Clean(realName);
-
-            if (realName is not null && systemName is not null && realName.Equals(systemName, StringComparison.OrdinalIgnoreCase))
+            if (realName is not null && systemName is not null && realName.Equals(systemName, StringComparison.Ordinal))
                 realName = null;
 
             var soundResRef = entry.HasSound ? entry.SoundResRef : null;
@@ -556,5 +557,155 @@ public sealed class PipelineRunner
     {
         log.Report($"ERROR: {message}");
         return new PipelineResult(false, 0, 0, 0, message);
+    }
+
+    public async Task RepatchAsync(PipelineOptions options, IProgress<string> log, CancellationToken ct)
+    {
+        await Task.Run(() =>
+        {
+            if (!File.Exists(options.TlkPath))
+                throw new FileNotFoundException($"dialog.tlk not found: '{options.TlkPath}'");
+            if (!File.Exists(options.ManifestPath))
+                throw new FileNotFoundException($"Manifest not found: '{options.ManifestPath}'");
+
+            var encoding = options.Encoding;
+            var manifest = VoiceManifest.LoadOrCreate(options.ManifestPath);
+            var tlk = TlkFile.Load(options.TlkPath, encoding);
+
+            var toRepatch = manifest.Entries
+                .Where(e => e.Status == VoiceEntryStatus.Patched)
+                .OrderBy(e => e.StrRef)
+                .ToList();
+
+            log.Report($"Manifest entries: {toRepatch.Count}");
+
+            if (toRepatch.Count == 0)
+            {
+                log.Report("Nothing to repatch.");
+                return;
+            }
+
+            var backupPath = options.TlkPath + ".bak";
+            if (!File.Exists(backupPath))
+                File.Copy(options.TlkPath, backupPath);
+            log.Report($"Backup: {backupPath}");
+
+            using var patcher = TlkPatcher.Open(options.TlkPath);
+            var repatched = 0;
+            var skipped = 0;
+
+            foreach (var me in toRepatch)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (me.StrRef >= tlk.Entries.Count) { skipped++; continue; }
+
+                var te = tlk.Entries[me.StrRef];
+                if (!string.Equals(te.SoundResRef, me.ResRef, StringComparison.OrdinalIgnoreCase))
+                {
+                    patcher.ApplySound(te, me.ResRef);
+                    repatched++;
+                }
+            }
+
+            log.Report($"Done. Repatched: {repatched}, already correct: {toRepatch.Count - repatched - skipped}, skipped: {skipped}.");
+        }, ct);
+    }
+
+    public async Task UnpatchAsync(PipelineOptions options, IProgress<string> log, CancellationToken ct)
+    {
+        await Task.Run(() =>
+        {
+            if (!File.Exists(options.TlkPath))
+                throw new FileNotFoundException($"dialog.tlk not found: '{options.TlkPath}'");
+            if (!File.Exists(options.ManifestPath))
+                throw new FileNotFoundException($"Manifest not found: '{options.ManifestPath}'");
+
+            var encoding = options.Encoding;
+            var manifest = VoiceManifest.LoadOrCreate(options.ManifestPath);
+            var tlk = TlkFile.Load(options.TlkPath, encoding);
+
+            var toUnpatch = manifest.Entries
+                .Where(e => e.Status == VoiceEntryStatus.Patched)
+                .OrderBy(e => e.StrRef)
+                .ToList();
+
+            log.Report($"Manifest entries: {toUnpatch.Count}");
+
+            if (toUnpatch.Count == 0)
+            {
+                log.Report("Nothing to unpatch.");
+                return;
+            }
+
+            var backupPath = options.TlkPath + ".bak";
+            if (!File.Exists(backupPath))
+                File.Copy(options.TlkPath, backupPath);
+            log.Report($"Backup: {backupPath}");
+
+            using var patcher = TlkPatcher.Open(options.TlkPath);
+            var cleared = 0;
+            var skipped = 0;
+
+            foreach (var me in toUnpatch)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (me.StrRef >= tlk.Entries.Count) { skipped++; continue; }
+
+                var te = tlk.Entries[me.StrRef];
+                if (!string.Equals(te.SoundResRef, me.ResRef, StringComparison.OrdinalIgnoreCase))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                patcher.ClearSound(te);
+                cleared++;
+            }
+
+            log.Report($"Done. Cleared: {cleared}, skipped: {skipped}.");
+            log.Report("Note: .wav/.ogg files in override were NOT deleted.");
+        }, ct);
+    }
+
+    private static List<(TlkEntry Entry, string CleanedText)> GetCandidatesForStrRefs(
+    TlkFile tlk, DialogTextCleaner cleaner, int minLength, IReadOnlySet<int> strRefs,
+    IReadOnlyDictionary<int, string>? textOverrides, IProgress<string> log)
+    {
+        var candidates = new List<(TlkEntry Entry, string CleanedText)>();
+
+        foreach (var strRef in strRefs.OrderBy(s => s))
+        {
+            if (strRef < 0 || strRef >= tlk.Entries.Count)
+            {
+                log.Report($"  [{strRef}] skipped: out of range for this TLK ({tlk.Entries.Count} entries).");
+                continue;
+            }
+
+            var entry = tlk.Entries[strRef];
+            if (!entry.HasText)
+            {
+                log.Report($"  [{strRef}] skipped: no text.");
+                continue;
+            }
+
+            var cleaned = textOverrides is not null && textOverrides.TryGetValue(strRef, out var overrideText)
+                ? overrideText
+                : cleaner.Clean(entry.Text);
+
+            if (!cleaner.LooksSpeakable(cleaned, minLength))
+            {
+                log.Report($"  [{strRef}] skipped: not speakable after cleaning.");
+                continue;
+            }
+
+            if (entry.HasSound)
+                log.Report($"  [{strRef}] already has sound ('{entry.SoundResRef}') - regenerating anyway since it was explicitly selected.");
+
+            candidates.Add((entry, cleaned));
+        }
+
+        return candidates;
     }
 }

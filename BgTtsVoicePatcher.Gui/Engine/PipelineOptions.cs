@@ -66,6 +66,11 @@ public sealed class PipelineOptions
     public string ReportPath => Path.Combine(LangDir, "dialog-report.csv");
     public string TextOverridesPath => Path.Combine(LangDir, "text-overrides.json");
     public string EffectiveDlgDir => string.IsNullOrWhiteSpace(DlgDir) ? OverrideDir : DlgDir;
+    public string ManifestPath => Path.Combine(LangDir, "tts-manifest.json");
+
+    /// <summary>When set, generate processes exactly these StrRefs regardless of voiced
+    /// state or Limit, mirroring the CLI's --strrefs. Null = normal selection.</summary>
+    public IReadOnlySet<int>? StrRefFilter { get; init; }
 }
 
 public sealed record PipelineProgress(int Done, int Total, int Generated, int Reused, int Failed, TimeSpan? RemainingTime = null);

@@ -119,6 +119,9 @@ public sealed class SpeakerRowViewModel : ObservableRow
 
     public bool IsTextOverridden { get; }
 
+    private bool _isSelected;
+    public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
+
     public SpeakerRowViewModel(int strRef, string? systemName, string? realName, string gender,
         bool hasSound, string? soundResRef, string rawText, string cleanedText, bool isTextOverridden)
     {
