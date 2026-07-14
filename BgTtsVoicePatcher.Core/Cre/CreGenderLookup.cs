@@ -25,6 +25,7 @@ public sealed class CreGenderLookup
     private readonly Dictionary<string, CreInfo?> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _nameReplacements;
     private readonly Dictionary<string, Gender> _genderOverrides;
+    private readonly Dictionary<string, string> _dlgToCreIndex;
 
     // In-memory index of all files in the CRE directory to prevent tens of thousands of disk I/O hits.
     private readonly HashSet<string> _creFileIndex;
@@ -43,6 +44,8 @@ public sealed class CreGenderLookup
             .Select(Path.GetFileNameWithoutExtension)
             .Where(name => name != null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
+
+        _dlgToCreIndex = BuildDlgToCreIndex(_creDirectory, _creFileIndex);
     }
 
     /// <summary>Just the gender, for the live --cre-dir path in 'generate' that
@@ -71,6 +74,53 @@ public sealed class CreGenderLookup
         return info;
     }
 
+
+    /// <summary>Cross-references every CRE's own embedded Dialog file resref (CRE V1.0
+    /// offset 0x02cc, an 8-byte fixed-width field) back to that CRE's basename. Built
+    /// once at construction time so FindCreFile can do an authoritative lookup instead
+    /// of guessing - a CRE's own DLG field is ground truth, not a heuristic.</summary>
+    private static Dictionary<string, string> BuildDlgToCreIndex(string creDirectory, HashSet<string> creFileIndex)
+    {
+        var index = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var creBaseName in creFileIndex.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+        {
+            var path = Path.Combine(creDirectory, creBaseName + ".cre");
+            try
+            {
+                var dlgRef = ReadDialogResRef(path);
+                if (!string.IsNullOrEmpty(dlgRef))
+                    index.TryAdd(dlgRef, creBaseName); // first (alphabetical) CRE wins any tie
+            }
+            catch
+            {
+                // Skip unreadable/corrupt files rather than failing the whole index build.
+            }
+        }
+
+        return index;
+    }
+
+    private static string? ReadDialogResRef(string path)
+    {
+        const int dialogFieldOffset = 0x02cc;
+        const int dialogFieldLength = 8;
+
+        using var stream = File.OpenRead(path);
+        if (stream.Length < dialogFieldOffset + dialogFieldLength)
+            return null;
+
+        stream.Seek(dialogFieldOffset, SeekOrigin.Begin);
+        var buffer = new byte[dialogFieldLength];
+        if (stream.Read(buffer, 0, dialogFieldLength) < dialogFieldLength)
+            return null;
+
+        // Resref fields are fixed 8-byte, null-padded - NOT necessarily null-terminated
+        // if the name uses the full 8 characters, so trim trailing nulls rather than
+        // reading until the first one (which could run past the field into adjacent data).
+        var text = System.Text.Encoding.ASCII.GetString(buffer).TrimEnd('\0');
+        return text.Length == 0 ? null : text;
+    }
     private string? FindCreFile(string scriptName)
     {
         // Local helper to execute the resolution chain for the current state of the string
@@ -109,17 +159,22 @@ public sealed class CreGenderLookup
             return false;
         }
 
-        // --- Step 1: Try original script name ---
-        if (TryResolveCascade(scriptName, out var matchUnmodified)) return matchUnmodified;
-
         var baseName = scriptName;
 
+        // Highest priority: an exact, authoritative match via the CRE's own embedded
+        // Dialog file reference. Not a guess - skip all heuristic stripping entirely
+        // when this hits.
+        if (_dlgToCreIndex.TryGetValue(baseName, out var creBaseName))
+            return Path.Combine(_creDirectory, creBaseName + ".cre");
+
+        // Apply name replacements from config before any other stripping
         foreach (var kvp in _nameReplacements)
         {
             // Regex.Replace with RegexOptions.IgnoreCase handles case-insensitivity safely
             baseName = Regex.Replace(baseName, kvp.Key, kvp.Value);
         }
 
+        // --- Step 1: Try original script name ---
         if (TryResolveCascade(baseName, out var match)) return match;
 
         if (baseName.Length > 0 && (baseName[^1] == '_'))
