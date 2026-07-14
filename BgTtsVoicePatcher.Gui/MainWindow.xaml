@@ -672,10 +672,8 @@
                                 <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
@@ -685,22 +683,15 @@
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
                                       SelectedItem="{Binding SelectedVoice}"
                                       ToolTip="Used when gender can't be resolved for a line." />
-                            <Button Grid.Row="0" Grid.Column="2" Content="🔊 Preview" Command="{Binding PreviewVoiceCommand}" CommandParameter="{Binding SelectedVoice}" />
-                            <Button Grid.Row="0" Grid.Column="3" Content="Refresh voices" Command="{Binding RefreshVoicesCommand}" />
+                            <Button Grid.Row="0" Grid.Column="2" Content="Refresh voices" Command="{Binding RefreshVoicesCommand}" />
 
                             <Label Grid.Row="1" Grid.Column="0" Content="Male voice" />
                             <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
                                       SelectedItem="{Binding SelectedMaleVoice}" />
-                            <Button Grid.Row="1" Grid.Column="2" Content="🔊 Preview" Command="{Binding PreviewVoiceCommand}" CommandParameter="{Binding SelectedMaleVoice}" />
 
                             <Label Grid.Row="2" Grid.Column="0" Content="Female voice" />
                             <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
                                       SelectedItem="{Binding SelectedFemaleVoice}" />
-                            <Button Grid.Row="2" Grid.Column="2" Content="🔊 Preview" Command="{Binding PreviewVoiceCommand}" CommandParameter="{Binding SelectedFemaleVoice}" />
-
-                            <Label Grid.Row="3" Grid.Column="0" Content="Preview text" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding PreviewText, UpdateSourceTrigger=PropertyChanged}" />
-                            <Button Grid.Row="3" Grid.Column="2" Content="Stop" Command="{Binding StopPreviewCommand}" />
                         </Grid>
                     </GroupBox>
 

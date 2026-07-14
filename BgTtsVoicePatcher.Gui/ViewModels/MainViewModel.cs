@@ -775,9 +775,6 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RevertRowTextCommand = new RelayCommand(RevertRowText);
         RevertAllTextCommand = new RelayCommand(RevertAllText);
 
-        PreviewVoiceCommand = new RelayCommand(PreviewVoice);
-        StopPreviewCommand = new RelayCommand(() => _previewPlayer.Stop());
-
         RefreshVoices();
     }
 
@@ -1004,31 +1001,4 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RecomputePendingChangesCount() =>
         PendingChangesCount = SpeakerRows.Count(r => r.IsGenderDirty || r.IsTextDirty || r.PendingRemoval);
-
-    private readonly VoicePreviewPlayer _previewPlayer = new();
-
-    private string _previewText = "Well met, traveler. Are you prepared for what lies ahead?";
-    public string PreviewText { get => _previewText; set => Set(ref _previewText, value); }
-
-    public RelayCommand PreviewVoiceCommand { get; }
-    public RelayCommand StopPreviewCommand { get; }
-
-    private void PreviewVoice(object? parameter)
-    {
-        var voiceName = ExtractVoiceName(parameter as string);
-        if (string.IsNullOrWhiteSpace(voiceName))
-        {
-            AppendLog("Select a voice first.");
-            return;
-        }
-
-        try
-        {
-            _previewPlayer.Preview(voiceName, string.IsNullOrWhiteSpace(PreviewText) ? "Well met, traveler." : PreviewText, Rate, Volume);
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"Could not preview voice: {ex.Message}");
-        }
-    }
 }
