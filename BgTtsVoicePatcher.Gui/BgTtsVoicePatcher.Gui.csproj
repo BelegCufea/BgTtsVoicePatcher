@@ -4,6 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>BgTtsVoicePatcher.Gui</RootNamespace>
+	<VersionPrefix>0.0.1</VersionPrefix>
+	<VersionSuffix>beta</VersionSuffix>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

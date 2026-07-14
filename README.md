@@ -1,48 +1,81 @@
-# BgTtsVoicePatcher (Claude)
+# BgTtsVoicePatcher
 
-Pre-bakes Windows SAPI text-to-speech audio for every **unvoiced** line in an
-Infinity Engine `dialog.tlk` (Baldur's Gate / BG2 / IWD : Enhanced Edition) and
-patches each line's `SoundResRef` in place, so the engine plays the generated
-WAV exactly like it would a real recorded voice line.
+Pre-bakes text-to-speech voiceover for unvoiced dialogue in Infinity Engine
+games (Baldur's Gate / BG2 / IWD : Enhanced Edition) and patches it directly
+into `dialog.tlk`, so the game plays it exactly like a real recorded line.
 
-This intentionally does *not* try to hook the engine at runtime (no EEex, no
-memory patching of the executable). Since every possible line of dialogue
-already exists as text in `dialog.tlk` before the game even launches there is
-no need for a live hook — everything can be generated and wired up ahead of
-time.
+No engine hooking, no memory patching, no runtime dependency once you're
+done - it edits the game's own dialogue file once, using Windows' built-in
+text-to-speech voices (or better ones you install).
+
+**Point this at your game, review who's speaking, pick two voices, and go.**
 
 ## Requirements
 
-- **Windows** — System.Speech wraps SAPI via COM and will not run on Linux/macOS.
-- **At least one SAPI voice.** Windows ships defaults; for noticeably better
-  quality install
-  [NaturalVoiceSAPIAdapter](https://github.com/gexgd0419/NaturalVoiceSAPIAdapter)
-  and any natural voice — it shows up via the `voices` command like any other
-  SAPI voice.
-- **ffmpeg**, only when using `--ogg` (recommended). The easiest way to install
-  it is via **winget**:
+- **Windows 10/11.** Voice synthesis uses Windows' built-in speech engine
+  (SAPI), which doesn't exist on macOS/Linux.
+- **At least one voice.** Windows ships some by default. For noticeably
+  better quality, install [NaturalVoiceSAPIAdapter](https://github.com/gexgd0419/NaturalVoiceSAPIAdapter)
+  and any natural voice - it shows up automatically alongside the built-in ones.
+- **ffmpeg** (optional, only if you want smaller `.ogg` files instead of
+  `.wav`). Easiest install:
   ```
   winget install Gyan.FFmpeg
   ```
-  After installation open a new terminal so PATH is updated, then verify with
-  `ffmpeg -version`.
-- **`patcher-config.json`** next to the executable (shipped with the project).
-  **Edit it to customise PC name/race/gender** tokens, CRE name heuristics, gender
-  overrides, and phonetic cleanup rules. Pass `--config <path>` to use a
-  different file.
 
-  ### <u>EDIT `patcher-config.json` before running!!!</u>
-  - `pcName` — word replacing `<CHARNAME>` and `<GABBER>`.
-	- e.g. `"pcName": "friend"` → `<CHARNAME>` becomes "friend" in the generated audio.
-  - `pcRace` — word replacing `<RACE>` / `<PRO_RACE>`.
-	- e.g. `"pcRace": "human"` → `<RACE>` becomes "human" in the generated audio.
-  - `pcGender` — setting for `<PRO_HESHE>`, `<BROTHERSISTER>`, etc. tokens with
-	gender specific forms defined in `genderTokens` section.
-	- e.g. `"pcGender": "neutral"` → `<PRO_HESHE>` becomes "they" in the generated audio.
+## Get started
+
+1. Download `BgTtsVoicePatcher.Gui.exe` from the [Releases](https://github.com/BelegCufea/BgTtsVoicePatcher/releases) page.
+2. Run it. No installer, no admin rights needed.
+3. Work through the five tabs, top to bottom:
+
+   | Tab | What you do there |
+   |---|---|
+   | **1. Directories** | Point it at your game folder (the one where *chitin.key* file lives). It finds `dialog.tlk` automatically. Setting DLG and CRE directories are **HIGHLY** recomended (see below). |
+   | **2. Config** | Set your character's name/race/pronouns for how unvoiced lines refer to you. Defaults are fine to start. |
+   | **3. Speaker Review** | Click **Find Speakers** - it figures out who says each line and their gender. Skim the table, fix anything wrong, filter/search like a spreadsheet. |
+   | **4. Voices and Sound Options** | Pick a male voice and a female voice from your installed voices. |
+   | **5. Run** | Hit **Run**. Grab a coffee - a full game can take a while. |
+
+That's it. The tool patches `dialog.tlk` in place (after making a backup)
+and drops the generated audio into your `override` folder.
+
+### Recommended extra step
+
+Speaker/gender detection works much better if you first export your game's
+dialogue and creature data with **[Near Infinity](https://github.com/Argent77/NearInfinity)**:
+
+1. Open Near Infinity, point it at your game.
+2. Press **Ctrl+M** (Tools -> Mass Export).
+3. Export resource type **DLG** to one folder, and **CRE** to another.
+   Uncheck "Decompile scripts and dialogs" for both.
+4. Point the tool at those two folders in the **Directories** tab.
+
+This is a one-time setup per game install. Skipping it still works, just
+with less accurate name/gender detection.
+
+## Undoing things
+
+If a game update or another mod overwrites `dialog.tlk`, or you just want to
+back out entirely, the app remembers what it patched:
+
+- **Reinstall** - re-applies your generated audio's references without
+  re-synthesizing anything (fast).
+- **Uninstall** - removes them, restoring `dialog.tlk` to how it was before.
+  Your generated `.wav`/`.ogg` files aren't deleted, just unreferenced.
+
+Both options appear automatically once the tool finds a previous run's
+manifest next to your `dialog.tlk`.
+
+## Power users: command line
+
+Everything the GUI does is also available as `BgTtsVoicePatcher.exe`, a
+scriptable console tool with per-command flags for automation, batch
+regeneration of specific lines, custom configs, and more.
 
 ## Installation
 
-Download the latest release and extract it. The package contains:
+Download the latest **[Release](https://github.com/BelegCufea/BgTtsVoicePatcher/releases)** and extract it. The package contains:
 
 - `BgTtsVoicePatcher.exe` — self-contained, no .NET installation required.
 - `patcher-config.json` — edit this before running.
@@ -50,6 +83,23 @@ Download the latest release and extract it. The package contains:
 - `README.md` — this file.
 
 Place all files in any folder you like, then open a terminal there.
+
+## Initial setup
+
+#### <u>EDIT `patcher-config.json` before running!!!</u>
+**`patcher-config.json`** is located next to the executable (shipped with the project).
+**Edit it to customise PC name/race/gender** tokens, CRE name heuristics, gender
+overrides, and phonetic cleanup rules. Pass `--config <path>` to use a
+different file.
+
+- `pcName` — word replacing `<CHARNAME>` and `<GABBER>`.
+- e.g. `"pcName": "friend"` → `<CHARNAME>` becomes "friend" in the generated audio.
+- `pcRace` — word replacing `<RACE>` / `<PRO_RACE>`.
+- e.g. `"pcRace": "human"` → `<RACE>` becomes "human" in the generated audio.
+- `pcGender` — setting for `<PRO_HESHE>`, `<BROTHERSISTER>`, etc. tokens with
+gender specific forms defined in `genderTokens` section.
+- e.g. `"pcGender": "neutral"` → `<PRO_HESHE>` becomes "they" in the generated audio.
+
 
 ## Recommended setup: Near Infinity mass-export
 

@@ -318,6 +318,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public static readonly string[] SpeakerGenderOptions = { "", "M", "F" };
     public static readonly string[] GenderFilterOptions = { "All", "M", "F", "(blank)" };
     public static readonly string[] VoicedFilterOptions = { "All", "Yes", "No" };
+    public static readonly string[] OverrideFilterOptions = { "All", "Yes", "No" };
 
     private ICollectionView? _speakerRowsView;
     public ICollectionView SpeakerRowsView => _speakerRowsView ??= BuildSpeakerRowsView();
@@ -352,6 +353,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private string _filterVoiced = "All";
     public string FilterVoiced { get => _filterVoiced; set { Set(ref _filterVoiced, value); SpeakerRowsView.Refresh(); } }
 
+    private string _filterSoundResRef = "";
+    public string FilterSoundResRef { get => _filterSoundResRef; set { Set(ref _filterSoundResRef, value); SpeakerRowsView.Refresh(); } }
+
+    private string _filterOverride = "All";
+    public string FilterOverride { get => _filterOverride; set { Set(ref _filterOverride, value); SpeakerRowsView.Refresh(); } }
+
     private string _filterText = "";
     public string FilterText { get => _filterText; set { Set(ref _filterText, value); SpeakerRowsView.Refresh(); } }
 
@@ -364,6 +371,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         FilterRealName = "";
         FilterGender = "All";
         FilterVoiced = "All";
+        FilterSoundResRef = "";
+        FilterOverride = "All";
         FilterText = "";
         FilterSystemNameState = null;
         FilterRealNameState = null;
@@ -422,6 +431,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 return false;
         }
 
+        if (!string.IsNullOrWhiteSpace(FilterSoundResRef) &&
+            !(row.SoundResRef?.Contains(FilterSoundResRef.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
+            return false;
+
+        if (FilterOverride != "All")
+        {
+            var wantsOverride = FilterOverride == "Yes";
+            if (row.ShowsOverride != wantsOverride)
+                return false;
+        }
+
         if (!string.IsNullOrWhiteSpace(FilterText))
         {
             var needle = FilterText.Trim();
@@ -466,10 +486,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
             SpeakerRows.ReplaceAll(speakerRows);
 
             foreach (var row in speakerRows)
-                row.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(SpeakerRowViewModel.IsSelected)) RecomputeSelectedCount(); };
-
-
+                row.PropertyChanged += (_,  e) =>
+                {
+                    if (e.PropertyName == nameof(SpeakerRowViewModel.IsSelected))
+                        RecomputeSelectedCount();
+                    else if (e.PropertyName is nameof(SpeakerRowViewModel.IsGenderDirty)
+                             or nameof(SpeakerRowViewModel.IsTextDirty)
+                             or nameof(SpeakerRowViewModel.PendingRemoval))
+                        RecomputePendingChangesCount();
+                };
             RecomputeSelectedCount();
+            RecomputePendingChangesCount();
 
             log.Report($"Loaded {rows.Count} row(s) into the review grid.");
         }, "Speaker review loaded.");
@@ -485,7 +512,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var options = BuildOptions();
         var dirtyGender = SpeakerRows.Where(r => r.IsGenderDirty && r.SystemName is not null).ToList();
-        var dirtyText = SpeakerRows.Where(r => r.IsTextDirty).ToList();
+        var dirtyText = SpeakerRows.Where(r => r.IsTextDirty || r.PendingRemoval).ToList();
 
         if (dirtyGender.Count == 0 && dirtyText.Count == 0)
         {
@@ -509,12 +536,25 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (dirtyText.Count > 0)
             {
                 var textOverrides = TextOverrides.Load(options.TextOverridesPath);
+                var removed = 0;
+                var upserted = 0;
+
                 foreach (var row in dirtyText)
-                    textOverrides[row.StrRef] = row.CleanedText;
+                {
+                    if (row.PendingRemoval)
+                    {
+                        if (textOverrides.Remove(row.StrRef))
+                            removed++;
+                    }
+                    else
+                    {
+                        textOverrides[row.StrRef] = row.CleanedText;
+                        upserted++;
+                    }
+                }
 
                 TextOverrides.Save(options.TextOverridesPath, textOverrides);
-                AppendLog($"Saved {dirtyText.Count} text override(s) to {options.TextOverridesPath}. " +
-                          "These will be used verbatim next time you Run - no re-cleaning.");
+                AppendLog($"Text overrides: {upserted} saved, {removed} reverted -> {options.TextOverridesPath}.");
             }
 
             foreach (var row in dirtyGender.Concat(dirtyText).Distinct())
@@ -731,6 +771,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 System.Diagnostics.Debug.WriteLine($"Error playing audio via ffplay: {ex.Message}");
             }
         });
+
+        RevertRowTextCommand = new RelayCommand(RevertRowText);
+        RevertAllTextCommand = new RelayCommand(RevertAllText);
+
         RefreshVoices();
     }
 
@@ -907,4 +951,54 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void RecomputeSelectedCount() => SelectedStrRefCount = SpeakerRows.Count(r => r.IsSelected);
 
     public RelayCommand PlaySoundCommand { get; }
+
+    public RelayCommand RevertRowTextCommand { get; }
+    public RelayCommand RevertAllTextCommand { get; }
+
+    private void RevertRowText(object? parameter)
+    {
+        if (parameter is not SpeakerRowViewModel row) return;
+        RevertRows(new[] { row });
+    }
+
+    private void RevertAllText()
+    {
+        var candidates = SpeakerRows.Where(r => r.ShowsOverride).ToList();
+        if (candidates.Count == 0)
+        {
+            AppendLog("No overridden or edited rows to revert.");
+            return;
+        }
+
+        var result = System.Windows.MessageBox.Show(
+            $"This resets {candidates.Count} row(s)' Cleaned Text back to auto-cleaned, and removes their " +
+            "saved overrides once you click Save Changes. This cannot be undone after saving. Continue?",
+            "Confirm Revert All", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning);
+
+        if (result == System.Windows.MessageBoxResult.Yes)
+            RevertRows(candidates);
+    }
+
+    private void RevertRows(IReadOnlyList<SpeakerRowViewModel> rows)
+    {
+        if (string.IsNullOrWhiteSpace(ConfigPath) || !File.Exists(ConfigPath))
+        {
+            AppendLog("Load a config first (Config tab) before reverting text.");
+            return;
+        }
+
+        var config = ConfigService.Load(ConfigPath);
+        var cleaner = new DialogTextCleaner(config);
+
+        foreach (var row in rows)
+            row.RevertText(cleaner.Clean(row.RawText));
+
+        AppendLog($"Reverted {rows.Count} row(s). Click Save Changes to remove their saved overrides.");
+    }
+
+    private int _pendingChangesCount;
+    public int PendingChangesCount { get => _pendingChangesCount; private set => Set(ref _pendingChangesCount, value); }
+
+    private void RecomputePendingChangesCount() =>
+        PendingChangesCount = SpeakerRows.Count(r => r.IsGenderDirty || r.IsTextDirty || r.PendingRemoval);
 }

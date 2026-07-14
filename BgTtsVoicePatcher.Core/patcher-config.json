@@ -1,6 +1,6 @@
 {
-  "pcName": "friend",
-  "pcRace": "human",
+  "pcName":   "friend",
+  "pcRace":   "human",
   "pcGender": "neutral",
 
   "creNameReplacements": {
@@ -39,7 +39,8 @@
     "RASAADZ":   "RASAAD",
     "MURCRAG":   "CRAGMOON",
     "RANGER1":   "VALRAN01",
-    "RGRWLF":    "RNGWLF"
+    "RGRWLF":    "RNGWLF",
+    "SARMEL":    "MEL"
   },
 
   "genderOverrides": {
@@ -80,27 +81,15 @@
   ],
 
   "phoneticRules": [
-    { "pattern": "\\^0x[0-9A-Fa-f]{6,8}", "replacement": "", "comment": "strip NPC Color mod code" },
-    { "pattern": "\\^-", "replacement": "", "comment": "strip NPC Color mod code" },
-    {
-      "pattern": "—",
-      "replacement": "...",
-      "comment": "em-dash"
-    },
-    {
-      "pattern": "\\b[Uu]st\\b",
-      "replacement": "Oost",
-      "comment": "Force the engine to read the name Ust as a phonetic word instead of the initialism U-S-T"
-    },
-    {
-      "pattern": "\\*(?:[Aa]chooo?|ahem|belch|boom|bu+r[pp]|cackle|chuckle|cough|crunch|er[pf]|gag|gasp|giggle|glug|groan|growl|gr+m+ble|gr+w+r+|gurgle|gurk|hack|hic(?:cup)?|his+s+|hum|moan|mumble|mutter|nngh|pant|retch|sigh|shiver|shrug|snarl|snicker|sniff(?:le)?|snork|snort|snore|sob|squeak|u+r[pp]|whinn+e|whistle|yawn)[!\\s]*\\*",
-      "replacement": "",
-      "comment": "silence vocal sounds, audio effects, and onomatopoeia within asterisks"
-    },
-    {
-      "pattern": "\\*([^*]+)\\*",
-      "replacement": "$1",
-      "comment": "strip outer asterisks from remaining text, leaving the inner word intact"
-    }
+    { "pattern": "\\^0x[0-9A-Fa-f]{8}|\\^-", "replacement": "",             "comment": "strip NPC Color mod code" },
+    { "pattern": "\\*{2,}",                  "replacement": "*",            "comment": "squash consecutive asterisks (two or more) into one" },
+    { "pattern": "\\*(?:[Aa]chooo?|ahem|belch|boom|bu+r[pp]|cackle|chuckle|cough|crunch|er[pf]|gag|gasp|giggle|glug|groan|growl|gr+m+ble|gr+w+r+|gurgle|gurk|hack|hic(?:cup)?|his+s+|hum|moan|mumble|mutter|nngh|pant|retch|sigh|shiver|shrug|snarl|snicker|sniff(?:le)?|snork|snort|snore|sob|squeak|u+r[pp]|whinn+e|whistle|yawn)[!\\s]*\\*",
+                                             "replacement": "",             "comment": "silence vocal sounds, audio effects, and onomatopoeia within asterisks" },
+    { "pattern": "\\*([^*]+)\\*",            "replacement": "\"$1\"",       "comment": "attempt to emphasize remianing text enclosed in asterisks" },
+    { "pattern": "—",                        "replacement": "...",          "comment": "em-dash to pause" },
+    { "pattern": "\\b([Gg])orion\\b",        "replacement": "$1oh-rye-uhn", "comment": "attempt at neural TTS pronunciation" },
+    { "pattern": "\\b([Ii])moen\\b",         "replacement": "$1hm-oh-an",   "comment": "attempt at neural TTS pronunciation" },
+    { "pattern": "\\b([Aa])rchmage\\b",      "replacement": "$1rch-maige",  "comment": "attempt at neural TTS pronunciation" },
+    { "pattern": "\\b[Uu]st\\b",             "replacement": "Oost",         "comment": "attempt at neural TTS pronunciation" }
   ]
 }

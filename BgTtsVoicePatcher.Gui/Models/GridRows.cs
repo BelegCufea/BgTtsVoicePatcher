@@ -16,6 +16,12 @@ public abstract class ObservableRow : INotifyPropertyChanged
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+
+    // add this so derived classes can request the event be raised
+    protected void RaisePropertyChanged(string name)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }
 
 /// <summary>One row of a simple string-to-string mapping (creNameReplacements,
@@ -111,16 +117,38 @@ public sealed class SpeakerRowViewModel : ObservableRow
         {
             Set(ref _cleanedText, value);
             IsTextDirty = _cleanedText != _originalCleanedText;
+            PendingRemoval = false; // any manual typing cancels a pending revert
         }
     }
 
     private bool _isTextDirty;
-    public bool IsTextDirty { get => _isTextDirty; private set => Set(ref _isTextDirty, value); }
+    public bool IsTextDirty
+    {
+        get => _isTextDirty;
+        private set
+        {
+            Set(ref _isTextDirty, value);
+            RaisePropertyChanged(nameof(ShowsOverride));
+        }
+    }
 
     public bool IsTextOverridden { get; }
 
     private bool _isSelected;
     public bool IsSelected { get => _isSelected; set => Set(ref _isSelected, value); }
+
+    private bool _pendingRemoval;
+    public bool PendingRemoval
+    {
+        get => _pendingRemoval;
+        private set
+        {
+            Set(ref _pendingRemoval, value);
+            RaisePropertyChanged(nameof(ShowsOverride));
+        }
+    }
+
+    public bool ShowsOverride => PendingRemoval ? false : (IsTextOverridden || IsTextDirty);
 
     public SpeakerRowViewModel(int strRef, string? systemName, string? realName, string gender,
         bool hasSound, string? soundResRef, string rawText, string cleanedText, bool isTextOverridden)
@@ -138,9 +166,20 @@ public sealed class SpeakerRowViewModel : ObservableRow
         _originalCleanedText = cleanedText;
     }
 
+    /// <summary>Resets displayed text to a freshly auto-cleaned value and marks this
+    /// row's override (if any) for removal on next save, rather than upserting the
+    /// fresh text as a new "permanent" override that would silently stop tracking
+    /// future config/phonetic-rule changes.</summary>
+    public void RevertText(string freshCleanedText)
+    {
+        CleanedText = freshCleanedText;   // this resets PendingRemoval to false internally...
+        PendingRemoval = true;            // ...so set it back to true afterward, deliberately
+    }
+
     public void MarkSaved()
     {
         IsGenderDirty = false;
         IsTextDirty = false;
+        PendingRemoval = false;
     }
 }
