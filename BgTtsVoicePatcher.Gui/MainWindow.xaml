@@ -677,21 +677,44 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <Label Grid.Row="0" Grid.Column="0" Content="Default / fallback" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
-                                      SelectedItem="{Binding SelectedVoice}"
-                                      ToolTip="Used when gender can't be resolved for a line." />
+                            <TextBlock Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                                       VerticalAlignment="Center" Margin="5" TextWrapping="Wrap">
+                                <Run Text="Select the voices for generation. Adjust the Speech Rate and Volume sliders below to tune the output." />
+                                <LineBreak />
+                                <Run Text="ℹ️ For high-quality neural voices (including Microsoft Edge), install the " Foreground="Gray" FontSize="11" />
+                                <Hyperlink Command="{Binding HyperlinkCommand}" CommandParameter="https://github.com/gexgd0419/NaturalVoiceSAPIAdapter"
+                                           FontSize="11">
+                                    NaturalVoiceSAPIAdapter
+                                </Hyperlink>
+                                <Run Text="." Foreground="Gray" FontSize="11" />
+                            </TextBlock>
+
                             <Button Grid.Row="0" Grid.Column="2" Content="Refresh voices" Command="{Binding RefreshVoicesCommand}" />
 
-                            <Label Grid.Row="1" Grid.Column="0" Content="Male voice" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
-                                      SelectedItem="{Binding SelectedMaleVoice}" />
 
-                            <Label Grid.Row="2" Grid.Column="0" Content="Female voice" />
+                            <Label Grid.Row="1" Grid.Column="0" Content="Default / fallback" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
+                                      SelectedItem="{Binding SelectedVoice}"
+                                      ToolTip="Used when gender can't be resolved for a line." />
+                            <Button Grid.Row="1" Grid.Column="2" Content="🔊 Preview" Command="{Binding PreviewVoiceCommand}" CommandParameter="{Binding SelectedVoice}" />
+
+                            <Label Grid.Row="2" Grid.Column="0" Content="Male voice" />
                             <ComboBox Grid.Row="2" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
+                                      SelectedItem="{Binding SelectedMaleVoice}" />
+                            <Button Grid.Row="2" Grid.Column="2" Content="🔊 Preview" Command="{Binding PreviewVoiceCommand}" CommandParameter="{Binding SelectedMaleVoice}" />
+
+                            <Label Grid.Row="3" Grid.Column="0" Content="Female voice" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" ItemsSource="{Binding AvailableVoices}"
                                       SelectedItem="{Binding SelectedFemaleVoice}" />
+                            <Button Grid.Row="3" Grid.Column="2" Content="🔊 Preview" Command="{Binding PreviewVoiceCommand}" CommandParameter="{Binding SelectedFemaleVoice}" />
+
+                            <Label Grid.Row="4" Grid.Column="0" Content="Preview text" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding PreviewText, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Row="4" Grid.Column="2" Content="Stop" Command="{Binding StopPreviewCommand}" />
                         </Grid>
                     </GroupBox>
 

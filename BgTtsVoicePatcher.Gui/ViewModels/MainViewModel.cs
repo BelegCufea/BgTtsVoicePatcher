@@ -775,6 +775,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         RevertRowTextCommand = new RelayCommand(RevertRowText);
         RevertAllTextCommand = new RelayCommand(RevertAllText);
 
+        PreviewVoiceCommand = new RelayCommand(PreviewVoice);
+        StopPreviewCommand = new RelayCommand(() => _previewPlayer.Stop());
+
+        HyperlinkCommand = new RelayCommand(Hyperlink_RequestNavigate);
+
         RefreshVoices();
     }
 
@@ -1001,4 +1006,49 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void RecomputePendingChangesCount() =>
         PendingChangesCount = SpeakerRows.Count(r => r.IsGenderDirty || r.IsTextDirty || r.PendingRemoval);
+
+    private readonly VoicePreviewPlayer _previewPlayer = new();
+
+    private string _previewText = "Well met, traveler. Are you prepared for what lies ahead?";
+    public string PreviewText { get => _previewText; set => Set(ref _previewText, value); }
+
+    public RelayCommand PreviewVoiceCommand { get; }
+    public RelayCommand StopPreviewCommand { get; }
+
+    private void PreviewVoice(object? parameter)
+    {
+        var voiceName = ExtractVoiceName(parameter as string);
+        if (string.IsNullOrWhiteSpace(voiceName))
+        {
+            AppendLog("Select a voice first.");
+            return;
+        }
+
+        try
+        {
+            _previewPlayer.Preview(voiceName, string.IsNullOrWhiteSpace(PreviewText) ? "Well met, traveler." : PreviewText, Rate, Volume);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Could not preview voice: {ex.Message}");
+        }
+    }
+
+    public RelayCommand HyperlinkCommand { get; }
+
+    private void Hyperlink_RequestNavigate(object? parameter)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = (parameter as string),
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Could not open hyperlink: {ex.Message}");
+        }
+    }
 }
