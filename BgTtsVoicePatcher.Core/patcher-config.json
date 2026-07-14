@@ -40,7 +40,8 @@
     "MURCRAG":   "CRAGMOON",
     "RANGER1":   "VALRAN01",
     "RGRWLF":    "RNGWLF",
-    "SARMEL":    "MEL"
+    "SARMEL":    "MEL",
+    "GORGAR1":   "SHUGAR01"
   },
 
   "genderOverrides": {
