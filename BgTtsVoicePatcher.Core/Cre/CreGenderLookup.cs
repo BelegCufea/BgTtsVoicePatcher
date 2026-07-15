@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -30,7 +31,7 @@ public sealed class CreGenderLookup
     // In-memory index of all files in the CRE directory to prevent tens of thousands of disk I/O hits.
     private readonly HashSet<string> _creFileIndex;
 
-    public CreGenderLookup(string creDirectory, PatcherConfig config)
+    public CreGenderLookup(string creDirectory, PatcherConfig config, IProgress<string>? progress = null)
     {
         if (!Directory.Exists(creDirectory))
             throw new DirectoryNotFoundException($"CRE directory not found: '{creDirectory}'");
@@ -39,13 +40,12 @@ public sealed class CreGenderLookup
         _nameReplacements = config.CreNameReplacements;
         _genderOverrides = config.GetParsedGenderOverrides();
 
-        // Initialize the file index cache once on startup
         _creFileIndex = Directory.EnumerateFiles(_creDirectory, "*.cre")
             .Select(Path.GetFileNameWithoutExtension)
             .Where(name => name != null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
 
-        _dlgToCreIndex = BuildDlgToCreIndex(_creDirectory, _creFileIndex);
+        _dlgToCreIndex = BuildDlgToCreIndex(_creDirectory, _creFileIndex, progress);
     }
 
     /// <summary>Just the gender, for the live --cre-dir path in 'generate' that
@@ -79,22 +79,33 @@ public sealed class CreGenderLookup
     /// offset 0x02cc, an 8-byte fixed-width field) back to that CRE's basename. Built
     /// once at construction time so FindCreFile can do an authoritative lookup instead
     /// of guessing - a CRE's own DLG field is ground truth, not a heuristic.</summary>
-    private static Dictionary<string, string> BuildDlgToCreIndex(string creDirectory, HashSet<string> creFileIndex)
+    private static Dictionary<string, string> BuildDlgToCreIndex(
+        string creDirectory, HashSet<string> creFileIndex, IProgress<string>? progress)
     {
         var index = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var ordered = creFileIndex.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        var total = ordered.Count;
+        var stopwatch = Stopwatch.StartNew();
 
-        foreach (var creBaseName in creFileIndex.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+        for (var i = 0; i < total; i++)
         {
+            var creBaseName = ordered[i];
             var path = Path.Combine(creDirectory, creBaseName + ".cre");
             try
             {
                 var dlgRef = ReadDialogResRef(path);
                 if (!string.IsNullOrEmpty(dlgRef))
-                    index.TryAdd(dlgRef, creBaseName); // first (alphabetical) CRE wins any tie
+                    index.TryAdd(dlgRef, creBaseName);
             }
             catch
             {
                 // Skip unreadable/corrupt files rather than failing the whole index build.
+            }
+
+            if (progress is not null && (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1))
+            {
+                progress.Report($"Indexing CRE files: {i + 1} / {total}");
+                stopwatch.Restart();
             }
         }
 

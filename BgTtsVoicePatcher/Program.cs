@@ -141,7 +141,7 @@ internal static class Program
         var candidateStrRefs = candidates.Select(c => c.Entry.StrRef).ToHashSet();
 
         Console.WriteLine($"Scanning *.dlg in: {dlgDir}");
-        var scan = SpeakerIndex.Scan(dlgDir);
+        var scan = SpeakerIndex.Scan(dlgDir, new Progress<string>(Console.WriteLine));
         Console.WriteLine($"  Files scanned: {scan.FilesScanned}, failed to parse: {scan.FilesFailed}");
 
         var relevantMap = scan.StrRefToSpeaker
@@ -150,7 +150,7 @@ internal static class Program
 
         var relevantNames = relevantMap.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
-        CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(creDir) ? null : new CreGenderLookup(creDir, config);
+        CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(creDir) ? null : new CreGenderLookup(creDir, config, new Progress<string>(Console.WriteLine));
         var resolvedViaCre = 0;
 
         var speakerInfos = new List<SpeakerIndex.SpeakerInfo>();
@@ -699,17 +699,35 @@ internal static class Program
     ///   • CreGenderLookup is only built when --cre-dir is provided.
     /// </summary>
     private static SpeakerData ResolveSpeakerData(
-        IReadOnlyDictionary<string, string> options,
-        string dlgDir,
-        PatcherConfig config)
+            IReadOnlyDictionary<string, string> options,
+            string dlgDir,
+            PatcherConfig config)
     {
         var fileSpeakerMap = SpeakerIndex.LoadStrRefMap(options.GetValueOrDefault("speaker-map") ?? string.Empty);
-        var fileGenderMap  = SpeakerGenderMap.Load(options.GetValueOrDefault("name-gender-map"));
-        var creDir         = options.GetValueOrDefault("cre-dir");
+        var fileGenderMap = SpeakerGenderMap.Load(options.GetValueOrDefault("name-gender-map"));
+        var creDir = options.GetValueOrDefault("cre-dir");
 
         var hasSpeakerFile = fileSpeakerMap.Count > 0;
-        var needCreLookup  = !string.IsNullOrWhiteSpace(creDir);
-        var needDlgScan    = !hasSpeakerFile || needCreLookup;
+
+        // --- Validation Checks ---
+        if (!hasSpeakerFile)
+        {
+            if (string.IsNullOrWhiteSpace(dlgDir))
+            {
+                Console.WriteLine(
+                    "Error: No speaker map file found or provided, and no DLG directory was specified to scan.");
+            }
+
+            if (string.IsNullOrWhiteSpace(creDir))
+            {
+                Console.WriteLine(
+                    "Error: No speaker map file found or provided, and no --cre-dir was specified for gender lookup.");
+            }
+        }
+        // -------------------------
+
+        var needCreLookup = !hasSpeakerFile && !string.IsNullOrWhiteSpace(creDir);
+        var needDlgScan = !hasSpeakerFile && !string.IsNullOrWhiteSpace(dlgDir);
 
         var liveSpeakerMap = new Dictionary<int, string>();
         CreGenderLookup? liveCreLookup = null;
@@ -718,7 +736,7 @@ internal static class Program
         {
             var reason = !hasSpeakerFile ? "no --speaker-map provided" : "--cre-dir requested";
             Console.WriteLine($"Scanning *.dlg in: {dlgDir} ({reason})");
-            var dlgScan = SpeakerIndex.Scan(dlgDir);
+            var dlgScan = SpeakerIndex.Scan(dlgDir, new Progress<string>(Console.WriteLine));
             Console.WriteLine($"  Files scanned: {dlgScan.FilesScanned}, failed: {dlgScan.FilesFailed}");
             liveSpeakerMap = dlgScan.StrRefToSpeaker;
         }
@@ -728,7 +746,13 @@ internal static class Program
         }
 
         if (needCreLookup)
-            liveCreLookup = new CreGenderLookup(creDir!, config);
+        {
+            liveCreLookup = new CreGenderLookup(creDir!, config, new Progress<string>(Console.WriteLine));
+        }
+        else
+        {
+            Console.WriteLine($"Using gender map ({fileGenderMap.Counts.gender} entries) — CRE lookup skipped.");
+        }
 
         var knownSpeakers = new HashSet<int>(fileSpeakerMap.Keys.Concat(liveSpeakerMap.Keys));
         if (knownSpeakers.Count == 0)
@@ -737,7 +761,6 @@ internal static class Program
         Console.WriteLine();
         return new SpeakerData(fileSpeakerMap, fileGenderMap, liveSpeakerMap, liveCreLookup, knownSpeakers);
     }
-
     /// <summary>Resolves dialog.tlk path and manifest path from either --game-dir+--lang
     /// or --tlk, with --manifest as an optional override for the manifest location.</summary>
     private static (string TlkPath, string ManifestPath) ResolveTlkAndManifest(

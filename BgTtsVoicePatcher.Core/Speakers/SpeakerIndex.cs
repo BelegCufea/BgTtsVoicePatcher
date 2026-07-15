@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -30,15 +31,20 @@ public static class SpeakerIndex
     /// into speaker-names.json grouped under DisplayName.</summary>
     public sealed record SpeakerInfo(string SystemName, string? DisplayName, Gender Gender);
 
-    public static ScanResult Scan(string dlgDirectory)
+    public static ScanResult Scan(string dlgDirectory, IProgress<string>? progress = null)
     {
         var strRefToSpeaker = new Dictionary<int, string>();
         var lineCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var filesScanned = 0;
         var filesFailed = 0;
 
-        foreach (var path in Directory.EnumerateFiles(dlgDirectory, "*.dlg"))
+        var files = Directory.EnumerateFiles(dlgDirectory, "*.dlg").ToList();
+        var total = files.Count;
+        var stopwatch = Stopwatch.StartNew();
+
+        for (var i = 0; i < total; i++)
         {
+            var path = files[i];
             var speakerName = Path.GetFileNameWithoutExtension(path).ToUpperInvariant();
 
             try
@@ -47,11 +53,7 @@ public static class SpeakerIndex
                 filesScanned++;
 
                 foreach (var strRef in strRefs)
-                {
-                    // First DLG found "owning" a StrRef wins; in practice a given
-                    // StrRef only ever appears as actor-text in one place.
                     strRefToSpeaker.TryAdd(strRef, speakerName);
-                }
 
                 if (strRefs.Count > 0)
                     lineCounts[speakerName] = lineCounts.GetValueOrDefault(speakerName) + strRefs.Count;
@@ -60,11 +62,16 @@ public static class SpeakerIndex
             {
                 filesFailed++;
             }
+
+            if (progress is not null && (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1))
+            {
+                progress.Report($"Scanning DLG files: {i + 1} / {total}");
+                stopwatch.Restart();
+            }
         }
 
         return new ScanResult(strRefToSpeaker, lineCounts, filesScanned, filesFailed);
     }
-
     public static void SaveStrRefMap(Dictionary<int, string> map, string path)
     {
         var json = JsonSerializer.Serialize(

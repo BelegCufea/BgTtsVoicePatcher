@@ -123,7 +123,7 @@ public sealed class PipelineRunner
         var candidateStrRefs = candidates.Select(c => c.Entry.StrRef).ToHashSet();
 
         log.Report($"Scanning *.dlg in: {dlgDir}");
-        var scan = SpeakerIndex.Scan(dlgDir);
+        var scan = SpeakerIndex.Scan(dlgDir, log);
         log.Report($"  Files scanned: {scan.FilesScanned}, failed to parse: {scan.FilesFailed}");
         ct.ThrowIfCancellationRequested();
 
@@ -135,7 +135,7 @@ public sealed class PipelineRunner
 
         CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(options.CreDir)
             ? null
-            : new CreGenderLookup(options.CreDir, config);
+            : new CreGenderLookup(options.CreDir, config, log);
         var resolvedViaCre = 0;
 
         var speakerInfos = new List<SpeakerIndex.SpeakerInfo>();
@@ -460,8 +460,26 @@ public sealed class PipelineRunner
             : SpeakerGenderMap.Empty;
 
         var hasSpeakerFile = fileSpeakerMap.Count > 0;
-        var needCreLookup = !string.IsNullOrWhiteSpace(options.CreDir);
-        var needDlgScan = !hasSpeakerFile;
+
+        // --- Validation Checks ---
+        if (!hasSpeakerFile)
+        {
+            if (string.IsNullOrWhiteSpace(options.DlgDir))
+            {
+                log.Report(
+                    "Error: No speaker map file found, and no DLG directory (DlgDir) was specified to scan for speakers.");
+            }
+
+            if (string.IsNullOrWhiteSpace(options.CreDir))
+            {
+                log.Report(
+                    "Error: No speaker map file found, and no CRE directory (CreDir) was specified for gender lookup.");
+            }
+        }
+        // -------------------------
+
+        var needCreLookup = !hasSpeakerFile && !string.IsNullOrWhiteSpace(options.CreDir);
+        var needDlgScan = !hasSpeakerFile && !string.IsNullOrWhiteSpace(options.DlgDir);
 
         var liveSpeakerMap = new Dictionary<int, string>();
         CreGenderLookup? liveCreLookup = null;
@@ -470,7 +488,7 @@ public sealed class PipelineRunner
         {
             var reason = !hasSpeakerFile ? "no speaker map found" : "CRE dir requested";
             log.Report($"Scanning *.dlg in: {options.EffectiveDlgDir} ({reason})");
-            var dlgScan = SpeakerIndex.Scan(options.EffectiveDlgDir);
+            var dlgScan = SpeakerIndex.Scan(options.EffectiveDlgDir, log);
             log.Report($"  Files scanned: {dlgScan.FilesScanned}, failed: {dlgScan.FilesFailed}");
             liveSpeakerMap = dlgScan.StrRefToSpeaker;
         }
@@ -480,7 +498,13 @@ public sealed class PipelineRunner
         }
 
         if (needCreLookup)
-            liveCreLookup = new CreGenderLookup(options.CreDir!, config);
+        {
+            liveCreLookup = new CreGenderLookup(options.CreDir!, config, log);
+        }
+        else
+        {
+            log.Report($"Using gender map ({fileGenderMap.Counts.gender} entries) — CRE lookup skipped.");
+        }
 
         var knownSpeakers = new HashSet<int>(fileSpeakerMap.Keys.Concat(liveSpeakerMap.Keys));
         if (knownSpeakers.Count == 0)

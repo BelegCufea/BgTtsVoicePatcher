@@ -16,6 +16,8 @@ public sealed class SpeakerGenderMap
     private readonly Dictionary<string, Gender> _genderBySystemName;
     private readonly Dictionary<string, string> _displayNameBySystemName;
 
+    public (int gender, int displayName) Counts => (_genderBySystemName.Count, _displayNameBySystemName.Count);
+
     private SpeakerGenderMap(Dictionary<string, Gender> genderBySystemName, Dictionary<string, string> displayNameBySystemName)
     {
         _genderBySystemName = genderBySystemName;
