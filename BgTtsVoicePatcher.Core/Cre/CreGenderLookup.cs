@@ -88,6 +88,7 @@ public sealed class CreGenderLookup
         var ordered = creFileIndex.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
         var total = ordered.Count;
         var stopwatch = Stopwatch.StartNew();
+        TimeSpan lastReported = new TimeSpan();
 
         for (var i = 0; i < total; i++)
         {
@@ -104,19 +105,21 @@ public sealed class CreGenderLookup
                 // Skip unreadable/corrupt files rather than failing the whole index build.
             }
 
+            var elapsed = stopwatch.Elapsed;
+
             if (numericProgress is not null)
             {
-                var elapsed = stopwatch.Elapsed;
                 var done = i + 1;
                 var remaining = TimeSpan.FromMilliseconds(elapsed.TotalMilliseconds / done * (total - done));
                 numericProgress.Report((done, total, remaining));
             }
 
-            if (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1)
+            if (progress is not null && (elapsed.TotalMilliseconds - lastReported.TotalMilliseconds >= 500 || i == total - 1))
             {
-                progress?.Report($"Indexing CRE files: {i + 1} / {total}");
-                stopwatch.Restart();
+                progress.Report($"Indexing CRE files: {i + 1} / {total}");
+                lastReported = elapsed;
             }
+
         }
 
         return index;

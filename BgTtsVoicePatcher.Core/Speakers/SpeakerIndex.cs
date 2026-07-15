@@ -44,6 +44,7 @@ public static class SpeakerIndex
         var files = Directory.EnumerateFiles(dlgDirectory, "*.dlg").ToList();
         var total = files.Count;
         var stopwatch = Stopwatch.StartNew();
+        TimeSpan lastReported = new TimeSpan();
 
         for (var i = 0; i < total; i++)
         {
@@ -66,18 +67,19 @@ public static class SpeakerIndex
                 filesFailed++;
             }
 
+            var elapsed = stopwatch.Elapsed;
+
             if (numericProgress is not null)
             {
-                var elapsed = stopwatch.Elapsed;
                 var done = i + 1;
                 var remaining = TimeSpan.FromMilliseconds(elapsed.TotalMilliseconds / done * (total - done));
                 numericProgress.Report((done, total, remaining));
             }
 
-            if (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1)
+            if (progress is not null && (elapsed.TotalMilliseconds - lastReported.TotalMilliseconds >= 500 || i == total - 1))
             {
-                progress?.Report($"Scanning DLG files: {i + 1} / {total}");
-                stopwatch.Restart();
+                progress.Report($"Scanning DLG files: {i + 1} / {total}");
+                lastReported = elapsed;
             }
         }
 
