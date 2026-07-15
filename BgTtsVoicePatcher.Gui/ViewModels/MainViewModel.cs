@@ -298,9 +298,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var options = BuildOptions();
 
-        await RunGuarded(async (log, _, ct) =>
+        await RunGuarded(async (log, progress, ct) =>
         {
-            await _runner.RunSpeakersOnlyAsync(options, log, ct);
+            await _runner.RunSpeakersOnlyAsync(options, log, progress, ct);
         }, "Speaker resolution finished.");
 
         await LoadSpeakerReviewAsync();
@@ -842,7 +842,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             IsProgressIndeterminate = false;
             ProgressMax = Math.Max(1, p.Total);
             ProgressValue = p.Done;
-            var baseText = $"{p.Done}/{p.Total} (ok {p.Generated + p.Reused}, failed {p.Failed})";
+            var baseText = p.Phase == "Generating"
+                ? $"{p.Done}/{p.Total} (ok {p.Generated + p.Reused}, failed {p.Failed})"
+                : $"{p.Phase}: {p.Done}/{p.Total}";
 
             if (p.RemainingTime.HasValue)
             {

@@ -31,7 +31,10 @@ public static class SpeakerIndex
     /// into speaker-names.json grouped under DisplayName.</summary>
     public sealed record SpeakerInfo(string SystemName, string? DisplayName, Gender Gender);
 
-    public static ScanResult Scan(string dlgDirectory, IProgress<string>? progress = null)
+    public static ScanResult Scan(
+        string dlgDirectory,
+        IProgress<string>? progress = null,
+        IProgress<(int Done, int Total, TimeSpan RemainingTime)>? numericProgress = null)
     {
         var strRefToSpeaker = new Dictionary<int, string>();
         var lineCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -63,15 +66,24 @@ public static class SpeakerIndex
                 filesFailed++;
             }
 
-            if (progress is not null && (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1))
+            if (numericProgress is not null)
             {
-                progress.Report($"Scanning DLG files: {i + 1} / {total}");
+                var elapsed = stopwatch.Elapsed;
+                var done = i + 1;
+                var remaining = TimeSpan.FromMilliseconds(elapsed.TotalMilliseconds / done * (total - done));
+                numericProgress.Report((done, total, remaining));
+            }
+
+            if (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1)
+            {
+                progress?.Report($"Scanning DLG files: {i + 1} / {total}");
                 stopwatch.Restart();
             }
         }
 
         return new ScanResult(strRefToSpeaker, lineCounts, filesScanned, filesFailed);
     }
+
     public static void SaveStrRefMap(Dictionary<int, string> map, string path)
     {
         var json = JsonSerializer.Serialize(

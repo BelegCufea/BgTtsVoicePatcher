@@ -85,7 +85,7 @@ public sealed class PipelineRunner
         {
             log.Report("Speaker files not found — running speaker/gender resolution first...");
             log.Report("");
-            RunSpeakersStep(options, config, encoding, cleaner, log, ct);
+            RunSpeakersStep(options, config, encoding, cleaner, log, progress, ct);
             log.Report("");
         }
         else if (haveSpeakerFiles)
@@ -112,18 +112,20 @@ public sealed class PipelineRunner
     }
 
     // ---- Step: speakers ------------------------------------------------------
-
     private void RunSpeakersStep(
         PipelineOptions options, PatcherConfig config, Encoding encoding, DialogTextCleaner cleaner,
-        IProgress<string> log, CancellationToken ct)
+        IProgress<string> log, IProgress<PipelineProgress> progress, CancellationToken ct)
     {
         var dlgDir = options.EffectiveDlgDir;
         var tlk = TlkFile.Load(options.TlkPath, encoding);
         var candidates = GetTtsCandidates(tlk, cleaner, options.MinLength, int.MaxValue, parseAll: true);
         var candidateStrRefs = candidates.Select(c => c.Entry.StrRef).ToHashSet();
 
+        var scanProgress = new Progress<(int Done, int Total, TimeSpan RemainingTime)>(p =>
+            progress.Report(new PipelineProgress(p.Done, p.Total, 0, 0, 0, p.RemainingTime, "Scanning DLG")));
+
         log.Report($"Scanning *.dlg in: {dlgDir}");
-        var scan = SpeakerIndex.Scan(dlgDir, log);
+        var scan = SpeakerIndex.Scan(dlgDir, log, scanProgress);
         log.Report($"  Files scanned: {scan.FilesScanned}, failed to parse: {scan.FilesFailed}");
         ct.ThrowIfCancellationRequested();
 
@@ -133,9 +135,12 @@ public sealed class PipelineRunner
 
         var relevantNames = relevantMap.Values.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
+        var creProgress = new Progress<(int Done, int Total, TimeSpan RemainingTime)>(p =>
+            progress.Report(new PipelineProgress(p.Done, p.Total, 0, 0, 0, p.RemainingTime, "Indexing CRE")));
+
         CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(options.CreDir)
             ? null
-            : new CreGenderLookup(options.CreDir, config, log);
+            : new CreGenderLookup(options.CreDir, config, log, creProgress);
         var resolvedViaCre = 0;
 
         var speakerInfos = new List<SpeakerIndex.SpeakerInfo>();
@@ -413,7 +418,7 @@ public sealed class PipelineRunner
     /// <summary>Runs just the speaker/gender resolution step on its own (the GUI's
     /// "Run Speakers" button), without generate/report - lets the user review and
     /// correct speaker-names.json before committing to a full synthesis pass.</summary>
-    public async Task RunSpeakersOnlyAsync(PipelineOptions options, IProgress<string> log, CancellationToken ct)
+    public async Task RunSpeakersOnlyAsync(PipelineOptions options, IProgress<string> log, IProgress<PipelineProgress> progress, CancellationToken ct)
     {
         await Task.Run(() =>
         {
@@ -425,7 +430,7 @@ public sealed class PipelineRunner
             var config = PatcherConfig.Load(options.ConfigPath);
             var encoding = options.Encoding;
             var cleaner = new DialogTextCleaner(config);
-            RunSpeakersStep(options, config, encoding, cleaner, log, ct);
+            RunSpeakersStep(options, config, encoding, cleaner, log, progress, ct);
         }, ct);
     }
 

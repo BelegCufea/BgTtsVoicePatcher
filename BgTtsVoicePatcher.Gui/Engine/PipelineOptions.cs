@@ -73,6 +73,6 @@ public sealed class PipelineOptions
     public IReadOnlySet<int>? StrRefFilter { get; init; }
 }
 
-public sealed record PipelineProgress(int Done, int Total, int Generated, int Reused, int Failed, TimeSpan? RemainingTime = null);
+public sealed record PipelineProgress(int Done, int Total, int Generated, int Reused, int Failed, TimeSpan? RemainingTime = null, string Phase = "Generating");
 
 public sealed record PipelineResult(bool Success, int Generated, int Reused, int Failed, string Message);

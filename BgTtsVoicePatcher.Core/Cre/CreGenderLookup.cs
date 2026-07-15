@@ -31,7 +31,8 @@ public sealed class CreGenderLookup
     // In-memory index of all files in the CRE directory to prevent tens of thousands of disk I/O hits.
     private readonly HashSet<string> _creFileIndex;
 
-    public CreGenderLookup(string creDirectory, PatcherConfig config, IProgress<string>? progress = null)
+    public CreGenderLookup(string creDirectory, PatcherConfig config,
+        IProgress<string>? progress = null, IProgress<(int Done, int Total, TimeSpan RemainingTime)>? numericProgress = null)
     {
         if (!Directory.Exists(creDirectory))
             throw new DirectoryNotFoundException($"CRE directory not found: '{creDirectory}'");
@@ -45,7 +46,7 @@ public sealed class CreGenderLookup
             .Where(name => name != null)
             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
 
-        _dlgToCreIndex = BuildDlgToCreIndex(_creDirectory, _creFileIndex, progress);
+        _dlgToCreIndex = BuildDlgToCreIndex(_creDirectory, _creFileIndex, progress, numericProgress);
     }
 
     /// <summary>Just the gender, for the live --cre-dir path in 'generate' that
@@ -80,7 +81,8 @@ public sealed class CreGenderLookup
     /// once at construction time so FindCreFile can do an authoritative lookup instead
     /// of guessing - a CRE's own DLG field is ground truth, not a heuristic.</summary>
     private static Dictionary<string, string> BuildDlgToCreIndex(
-        string creDirectory, HashSet<string> creFileIndex, IProgress<string>? progress)
+        string creDirectory, HashSet<string> creFileIndex,
+        IProgress<string>? progress, IProgress<(int Done, int Total, TimeSpan RemainingTime)>? numericProgress)
     {
         var index = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var ordered = creFileIndex.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
@@ -102,16 +104,23 @@ public sealed class CreGenderLookup
                 // Skip unreadable/corrupt files rather than failing the whole index build.
             }
 
-            if (progress is not null && (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1))
+            if (numericProgress is not null)
             {
-                progress.Report($"Indexing CRE files: {i + 1} / {total}");
+                var elapsed = stopwatch.Elapsed;
+                var done = i + 1;
+                var remaining = TimeSpan.FromMilliseconds(elapsed.TotalMilliseconds / done * (total - done));
+                numericProgress.Report((done, total, remaining));
+            }
+
+            if (stopwatch.ElapsedMilliseconds >= 500 || i == total - 1)
+            {
+                progress?.Report($"Indexing CRE files: {i + 1} / {total}");
                 stopwatch.Restart();
             }
         }
 
         return index;
     }
-
     private static string? ReadDialogResRef(string path)
     {
         const int dialogFieldOffset = 0x02cc;
