@@ -33,6 +33,8 @@ namespace BgTtsVoicePatcher.Gui.Engine;
 /// </summary>
 public sealed class PipelineRunner
 {
+    bool _confirmFallbackDirsAcknowledged = false;
+
     /// <summary>Holds the resolved speaker-name/gender lookup data for one run,
     /// combining file-based (speaker-strrefs.json + speaker-names.json) and live
     /// (DLG scan + CRE lookup) sources, exactly like the CLI's SpeakerData.</summary>
@@ -72,8 +74,7 @@ public sealed class PipelineRunner
         log.Report($"Override       : {options.OverrideDir}");
         log.Report($"TLK            : {options.TlkPath}");
         log.Report($"DLG scan dir   : {options.EffectiveDlgDir}");
-        if (!string.IsNullOrWhiteSpace(options.CreDir))
-            log.Report($"CRE dir        : {options.CreDir}");
+        log.Report($"CRE dir        : {options.EffectiveCreDir}");
         log.Report("");
 
         ct.ThrowIfCancellationRequested();
@@ -106,7 +107,7 @@ public sealed class PipelineRunner
         // -- Step 3: report ---------------------------------------------------
         log.Report("");
         log.Report("Writing report...");
-        RunReportStep(options, config, encoding, cleaner, log);
+        RunReportStep(options, config, encoding, cleaner, log, progress);
 
         return generateResult;
     }
@@ -117,6 +118,7 @@ public sealed class PipelineRunner
         IProgress<string> log, IProgress<PipelineProgress> progress, CancellationToken ct)
     {
         var dlgDir = options.EffectiveDlgDir;
+        var creDir = options.EffectiveCreDir;
         var tlk = TlkFile.Load(options.TlkPath, encoding);
         var candidates = GetTtsCandidates(tlk, cleaner, options.MinLength, int.MaxValue, parseAll: true);
         var candidateStrRefs = candidates.Select(c => c.Entry.StrRef).ToHashSet();
@@ -125,7 +127,7 @@ public sealed class PipelineRunner
             progress.Report(new PipelineProgress(p.Done, p.Total, 0, 0, 0, p.RemainingTime, "Scanning DLG")));
 
         log.Report($"Scanning *.dlg in: {dlgDir}");
-        var scan = SpeakerIndex.Scan(dlgDir, log, scanProgress);
+        var scan = SpeakerIndex.Scan(dlgDir, null, scanProgress);
         log.Report($"  Files scanned: {scan.FilesScanned}, failed to parse: {scan.FilesFailed}");
         ct.ThrowIfCancellationRequested();
 
@@ -138,9 +140,11 @@ public sealed class PipelineRunner
         var creProgress = new Progress<(int Done, int Total, TimeSpan RemainingTime)>(p =>
             progress.Report(new PipelineProgress(p.Done, p.Total, 0, 0, 0, p.RemainingTime, "Indexing CRE")));
 
-        CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(options.CreDir)
+        log.Report($"Scanning *.cre in: {creDir}");
+
+        CreGenderLookup? creLookup = string.IsNullOrWhiteSpace(creDir)
             ? null
-            : new CreGenderLookup(options.CreDir, config, log, creProgress);
+            : new CreGenderLookup(creDir, config, null, creProgress);
         var resolvedViaCre = 0;
 
         var speakerInfos = new List<SpeakerIndex.SpeakerInfo>();
@@ -188,7 +192,7 @@ public sealed class PipelineRunner
         IProgress<string> log, IProgress<PipelineProgress> progress, CancellationToken ct)
     {
         var tlk = TlkFile.Load(options.TlkPath, encoding);
-        var sd = ResolveSpeakerData(options, config, log);
+        var sd = ResolveSpeakerData(options, config, log, progress);
         var textOverrides = TextOverrides.Load(options.TextOverridesPath);
 
         var candidates = options.StrRefFilter is not null
@@ -334,10 +338,10 @@ public sealed class PipelineRunner
     // ---- Step: report -----------------------------------------------------
 
     private void RunReportStep(
-        PipelineOptions options, PatcherConfig config, Encoding encoding, DialogTextCleaner cleaner, IProgress<string> log)
+        PipelineOptions options, PatcherConfig config, Encoding encoding, DialogTextCleaner cleaner, IProgress<string> log, IProgress<PipelineProgress> progress)
     {
         var textOverrides = TextOverrides.Load(options.TextOverridesPath);
-        var rows = BuildSpeakerReviewRowsInternal(options, config, encoding, cleaner, textOverrides, log);
+        var rows = BuildSpeakerReviewRowsInternal(options, config, encoding, cleaner, textOverrides, log, progress);
 
         // CSV report keeps its existing shape (Core's DialogReportRow) - map the
         // richer review data down to it rather than changing that public contract.
@@ -353,10 +357,10 @@ public sealed class PipelineRunner
     /// and a color-code-stripped display name for the "in-game name" column.</summary>
     private List<SpeakerReviewRow> BuildSpeakerReviewRowsInternal(
         PipelineOptions options, PatcherConfig config, Encoding encoding, DialogTextCleaner cleaner,
-        IReadOnlyDictionary<int, string> textOverrides, IProgress<string> log)
+        IReadOnlyDictionary<int, string> textOverrides, IProgress<string> log, IProgress<PipelineProgress> progress)
     {
         var tlk = TlkFile.Load(options.TlkPath, encoding);
-        var sd = ResolveSpeakerData(options, config, log);
+        var sd = ResolveSpeakerData(options, config, log, progress);
 
         var rows = new List<SpeakerReviewRow>();
 
@@ -438,7 +442,7 @@ public sealed class PipelineRunner
     /// reusable at any point once speaker files exist (or even without them,
     /// falling back to a live DLG/CRE scan).</summary>
     public async Task<List<SpeakerReviewRow>> BuildSpeakerReviewRowsAsync(
-        PipelineOptions options, IProgress<string> log, CancellationToken ct)
+        PipelineOptions options, IProgress<string> log, IProgress<PipelineProgress> progress, CancellationToken ct)
     {
         return await Task.Run(() =>
         {
@@ -449,13 +453,13 @@ public sealed class PipelineRunner
             var encoding = options.Encoding;
             var cleaner = new DialogTextCleaner(config);
             var textOverrides = TextOverrides.Load(options.TextOverridesPath);
-            return BuildSpeakerReviewRowsInternal(options, config, encoding, cleaner, textOverrides, log);
+            return BuildSpeakerReviewRowsInternal(options, config, encoding, cleaner, textOverrides, log, progress);
         }, ct);
     }
 
     // ---- shared helpers (ported from Program.cs) ---------------------------
 
-    private static SpeakerData ResolveSpeakerData(PipelineOptions options, PatcherConfig config, IProgress<string> log)
+    private SpeakerData ResolveSpeakerData(PipelineOptions options, PatcherConfig config, IProgress<string> log, IProgress<PipelineProgress> progress)
     {
         var fileSpeakerMap = File.Exists(options.SpeakerMapPath)
             ? SpeakerIndex.LoadStrRefMap(options.SpeakerMapPath)
@@ -466,48 +470,33 @@ public sealed class PipelineRunner
 
         var hasSpeakerFile = fileSpeakerMap.Count > 0;
 
-        // --- Validation Checks ---
         if (!hasSpeakerFile)
         {
-            if (string.IsNullOrWhiteSpace(options.DlgDir))
-            {
-                log.Report(
-                    "Error: No speaker map file found, and no DLG directory (DlgDir) was specified to scan for speakers.");
-            }
-
-            if (string.IsNullOrWhiteSpace(options.CreDir))
-            {
-                log.Report(
-                    "Error: No speaker map file found, and no CRE directory (CreDir) was specified for gender lookup.");
-            }
+            ConfirmFallbackDirs(options);
         }
-        // -------------------------
 
-        var needCreLookup = !hasSpeakerFile && !string.IsNullOrWhiteSpace(options.CreDir);
-        var needDlgScan = !hasSpeakerFile && !string.IsNullOrWhiteSpace(options.DlgDir);
-
-        var liveSpeakerMap = new Dictionary<int, string>();
+            var liveSpeakerMap = new Dictionary<int, string>();
         CreGenderLookup? liveCreLookup = null;
 
-        if (needDlgScan)
+        if (!hasSpeakerFile)
         {
-            var reason = !hasSpeakerFile ? "no speaker map found" : "CRE dir requested";
-            log.Report($"Scanning *.dlg in: {options.EffectiveDlgDir} ({reason})");
-            var dlgScan = SpeakerIndex.Scan(options.EffectiveDlgDir, log);
+            var dlgDir = options.EffectiveDlgDir;
+            var scanProgress = new Progress<(int Done, int Total, TimeSpan RemainingTime)>(p =>
+                progress.Report(new PipelineProgress(p.Done, p.Total, 0, 0, 0, p.RemainingTime, "Scanning DLG")));
+            log.Report($"Scanning *.dlg in: {dlgDir}");
+            var dlgScan = SpeakerIndex.Scan(dlgDir, null, scanProgress);
             log.Report($"  Files scanned: {dlgScan.FilesScanned}, failed: {dlgScan.FilesFailed}");
             liveSpeakerMap = dlgScan.StrRefToSpeaker;
+
+            var creDir = options.EffectiveCreDir;
+            var creProgress = new Progress<(int Done, int Total, TimeSpan RemainingTime)>(p =>
+                progress.Report(new PipelineProgress(p.Done, p.Total, 0, 0, 0, p.RemainingTime, "Indexing CRE")));
+            log.Report($"Scanning *.cre in: {creDir}");
+            liveCreLookup = new CreGenderLookup(creDir, config, null, creProgress);
         }
         else
         {
             log.Report($"Using speaker map ({fileSpeakerMap.Count} entries) — DLG scan skipped.");
-        }
-
-        if (needCreLookup)
-        {
-            liveCreLookup = new CreGenderLookup(options.CreDir!, config, log);
-        }
-        else
-        {
             log.Report($"Using gender map ({fileGenderMap.Counts.gender} entries) — CRE lookup skipped.");
         }
 
@@ -736,5 +725,36 @@ public sealed class PipelineRunner
         }
 
         return candidates;
+    }
+
+    private bool ConfirmFallbackDirs(PipelineOptions options)
+    {
+        if (_confirmFallbackDirsAcknowledged)
+            return _confirmFallbackDirsAcknowledged;
+
+        var usingDlgFallback = string.IsNullOrWhiteSpace(options.DlgDir);
+        var usingCreFallback = string.IsNullOrWhiteSpace(options.CreDir);
+
+        if (!usingDlgFallback && !usingCreFallback)
+        {
+            _confirmFallbackDirsAcknowledged = true;
+            return true;
+        }
+
+        var which = (usingDlgFallback, usingCreFallback) switch
+        {
+            (true, true) => "DLG and CRE folders",
+            (true, false) => "DLG folder",
+            _ => "CRE folder",
+        };
+
+        System.Windows.MessageBox.Show(
+            $"No {which} was set, so this run will scan your game's 'override' folder instead. " +
+            "That usually finds far fewer files than a proper Near Infinity mass-export, so speaker " +
+            "and gender detection may come back mostly empty or wrong. Continue anyway?",
+            "Using fallback directory", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+
+        _confirmFallbackDirsAcknowledged = true;
+        return _confirmFallbackDirsAcknowledged;
     }
 }

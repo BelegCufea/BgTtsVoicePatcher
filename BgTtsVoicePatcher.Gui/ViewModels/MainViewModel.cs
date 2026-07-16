@@ -467,9 +467,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         var options = BuildOptions();
 
-        await RunGuarded(async (log, _, ct) =>
+        await RunGuarded(async (log, progress, ct) =>
         {
-            List<SpeakerReviewRow> rows = await _runner.BuildSpeakerReviewRowsAsync(options, log, ct);
+            List<SpeakerReviewRow> rows = await _runner.BuildSpeakerReviewRowsAsync(options, log, progress, ct);
 
             log.Report($"Building {rows.Count} review row(s)...");
             var previousSelection = SpeakerRows.Where(r => r.IsSelected).Select(r => r.StrRef).ToHashSet();
