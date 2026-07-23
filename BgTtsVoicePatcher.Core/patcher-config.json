@@ -40,7 +40,10 @@
     "MURCRAG":   "CRAGMOON",
     "RANGER1":   "VALRAN01",
     "RGRWLF":    "RNGWLF",
-    "SARMEL":    "MEL"
+    "SARMEL":    "MEL",
+    "CUTSILK":   "SILKE",
+    "CORIAN":    "UBCORIAN"
+
   },
 
   "genderOverrides": {
@@ -82,15 +85,60 @@
   ],
 
   "phoneticRules": [
-    { "pattern": "\\^0x[0-9A-Fa-f]{8}|\\^-", "replacement": "",             "comment": "strip NPC Color mod code" },
-    { "pattern": "\\*{2,}",                  "replacement": "*",            "comment": "squash consecutive asterisks (two or more) into one" },
-    { "pattern": "\\*(?:[Aa]chooo?|ahem|belch|boom|bu+r[pp]|cackle|chuckle|cough|crunch|er[pf]|gag|gasp|giggle|glug|groan|growl|gr+m+ble|gr+w+r+|gurgle|gurk|hack|hic(?:cup)?|his+s+|hum|moan|mumble|mutter|nngh|pant|retch|sigh|shiver|shrug|snarl|snicker|sniff(?:le)?|snork|snort|snore|sob|squeak|u+r[pp]|whinn+e|whistle|yawn)[!\\s]*\\*",
-                                             "replacement": "",             "comment": "silence vocal sounds, audio effects, and onomatopoeia within asterisks" },
-    { "pattern": "\\*([^*]+)\\*",            "replacement": "\"$1\"",       "comment": "attempt to emphasize remianing text enclosed in asterisks" },
-    { "pattern": "—",                        "replacement": "...",          "comment": "em-dash to pause" },
-    { "pattern": "\\b([Gg])orion\\b",        "replacement": "$1oh-rye-uhn", "comment": "attempt at neural TTS pronunciation" },
-    { "pattern": "\\b([Ii])moen\\b",         "replacement": "$1hm-oh-an",   "comment": "attempt at neural TTS pronunciation" },
-    { "pattern": "\\b([Aa])rchmage\\b",      "replacement": "$1rch-maige",  "comment": "attempt at neural TTS pronunciation" },
-    { "pattern": "\\b[Uu]st\\b",             "replacement": "Oost",         "comment": "attempt at neural TTS pronunciation" }
+    {
+      "pattern": "\\r?\\n",
+      "replacement": " ... ",
+      "comment": "pause after paragraph"
+    },
+    {
+      "pattern": "\\^0x[0-9A-Fa-f]{8}|\\^-",
+      "replacement": "",
+      "comment": "strip NPC Color mod code"
+    },
+    {
+      "pattern": "\\*{2,}",
+      "replacement": "*",
+      "comment": "squash consecutive asterisks (two or more) into one"
+    },
+    {
+      "pattern": "\\*(?:[Aa]chooo?|ahem|belch|boom|bu+r[pp]|cackle|chuckle|cough|crunch|er[pf]|gag|gasp|giggle|glug|grin|groan|growl|gr+m+ble|gr+w+r+|gurgle|gurk|hack|hic(?:cup)?|his+s+|hum|moan|mumble|mutter|nngh|pant|retch|sigh|shiver|shrug|shudder|snarl|snicker|sniff(?:le)?|snork|snort|snore|sob|squeak|u+r[pp]|whinn+e|whistle|yawn)[!\\s]*\\*",
+      "replacement": "",
+      "comment": "silence vocal sounds, audio effects, and onomatopoeia within asterisks"
+    },
+    {
+      "pattern": "\\*([^*]+)\\*",
+      "replacement": "\"$1\"",
+      "comment": "attempt to emphasize remianing text enclosed in asterisks"
+    },
+    {
+      "pattern": "—",
+      "replacement": " ... ",
+      "comment": "em-dash to pause"
+    },
+    {
+      "pattern": "(?<=\\S)\\s*\\.{3,}\\s*|\\s*\\.{3,}\\s*(?=\\S)",
+      "replacement": " ... ",
+      "comment": "ensure single space padding around ellipsis when adjacent to text"
+    },
+    {
+      "pattern": "\\b([Gg])orion\\b",
+      "replacement": "$1oh-rye-uhn",
+      "comment": "attempt at neural TTS pronunciation"
+    },
+    {
+      "pattern": "\\b([Ii])moen\\b",
+      "replacement": "$1hm-oh-an",
+      "comment": "attempt at neural TTS pronunciation"
+    },
+    {
+      "pattern": "\\b([Aa])rchmage\\b",
+      "replacement": "$1rch-maige",
+      "comment": "attempt at neural TTS pronunciation"
+    },
+    {
+      "pattern": "\\b[Uu]st\\b",
+      "replacement": "Oost",
+      "comment": "attempt at neural TTS pronunciation"
+    }
   ]
 }
